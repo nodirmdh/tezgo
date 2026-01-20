@@ -1,13 +1,9 @@
 import PageHeader from "../components/PageHeader";
 import Toolbar from "../components/Toolbar";
+import { getClients } from "../../lib/mockApi";
 
-const clients = [
-  { name: "Азиза Н.", phone: "+998 90 123 45 67", orders: 12 },
-  { name: "Отабек С.", phone: "+998 93 456 78 12", orders: 4 },
-  { name: "Мария К.", phone: "+998 97 222 11 00", orders: 9 }
-];
-
-export default function ClientsPage() {
+export default async function ClientsPage() {
+  const clients = await getClients();
   return (
     <main>
       <PageHeader title="Clients" description="База клиентов и количество заказов." />

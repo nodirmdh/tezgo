@@ -1,19 +1,8 @@
 import PageHeader from "./components/PageHeader";
+import { getDashboardSummary } from "../lib/mockApi";
 
-const cards = [
-  { title: "Заказы сегодня", value: "124" },
-  { title: "Активные курьеры", value: "18" },
-  { title: "Новые клиенты", value: "32" },
-  { title: "Сервисный сбор", value: "1 200 000 сум" }
-];
-
-const recentOrders = [
-  { id: "ORD-1041", outlet: "Burger Way", status: "Принят рестораном" },
-  { id: "ORD-1040", outlet: "Green Market", status: "Готов к выдаче" },
-  { id: "ORD-1039", outlet: "Sushi Lab", status: "Курьер забрал" }
-];
-
-export default function HomePage() {
+export default async function HomePage() {
+  const { cards, recentOrders } = await getDashboardSummary();
   return (
     <main>
       <PageHeader

@@ -1,13 +1,9 @@
 import PageHeader from "../components/PageHeader";
 import Toolbar from "../components/Toolbar";
+import { getCouriers } from "../../lib/mockApi";
 
-const couriers = [
-  { name: "Шавкат А.", rating: 4.8, status: "active" },
-  { name: "Нодира К.", rating: 4.6, status: "active" },
-  { name: "Ильяс Т.", rating: 4.1, status: "paused" }
-];
-
-export default function CouriersPage() {
+export default async function CouriersPage() {
+  const couriers = await getCouriers();
   return (
     <main>
       <PageHeader title="Couriers" description="Курьеры и текущий статус работы." />

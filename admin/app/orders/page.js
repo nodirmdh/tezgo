@@ -1,28 +1,9 @@
 import PageHeader from "../components/PageHeader";
 import Toolbar from "../components/Toolbar";
+import { getOrders } from "../../lib/mockApi";
 
-const orders = [
-  {
-    id: "ORD-1041",
-    outlet: "Burger Way",
-    courier: "Шавкат А.",
-    status: "Принят рестораном"
-  },
-  {
-    id: "ORD-1040",
-    outlet: "Green Market",
-    courier: "—",
-    status: "Готов к выдаче"
-  },
-  {
-    id: "ORD-1039",
-    outlet: "Sushi Lab",
-    courier: "Нодира К.",
-    status: "Курьер забрал"
-  }
-];
-
-export default function OrdersPage() {
+export default async function OrdersPage() {
+  const orders = await getOrders();
   return (
     <main>
       <PageHeader

@@ -1,12 +1,9 @@
 import PageHeader from "../components/PageHeader";
 import Toolbar from "../components/Toolbar";
+import { getOutlets } from "../../lib/mockApi";
 
-const outlets = [
-  { name: "Burger Way", type: "restaurant", address: "ул. Навои, 12" },
-  { name: "Green Market", type: "shop", address: "пр. Мустакиллик, 88" }
-];
-
-export default function OutletsPage() {
+export default async function OutletsPage() {
+  const outlets = await getOutlets();
   return (
     <main>
       <PageHeader

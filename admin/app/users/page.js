@@ -1,13 +1,9 @@
 import PageHeader from "../components/PageHeader";
 import Toolbar from "../components/Toolbar";
+import { getUsers } from "../../lib/mockApi";
 
-const users = [
-  { id: "TG-1021", username: "@aziza", status: "active", role: "Client" },
-  { id: "TG-874", username: "@jamshid", status: "blocked", role: "Courier" },
-  { id: "TG-322", username: "@admin", status: "active", role: "Admin" }
-];
-
-export default function UsersPage() {
+export default async function UsersPage() {
+  const users = await getUsers();
   return (
     <main>
       <PageHeader

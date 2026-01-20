@@ -1,13 +1,9 @@
 import PageHeader from "../components/PageHeader";
 import Toolbar from "../components/Toolbar";
+import { getFinance } from "../../lib/mockApi";
 
-const payouts = [
-  { type: "Комиссия", amount: "7% от subtotal" },
-  { type: "Сервисный сбор", amount: "5 000 сум" },
-  { type: "Доля доставки", amount: "20% от courier_fee" }
-];
-
-export default function FinancePage() {
+export default async function FinancePage() {
+  const { summary, transactions } = await getFinance();
   return (
     <main>
       <PageHeader title="Finance" description="Сводка начислений и удержаний." />
@@ -20,7 +16,7 @@ export default function FinancePage() {
         </select>
       </Toolbar>
       <div className="cards">
-        {payouts.map((item) => (
+        {summary.map((item) => (
           <div key={item.type} className="card">
             <div style={{ color: "#64748B", fontSize: "13px" }}>{item.type}</div>
             <div style={{ fontSize: "18px", fontWeight: 600, marginTop: "6px" }}>
@@ -38,20 +34,15 @@ export default function FinancePage() {
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Выплата курьеру #208</td>
-            <td>120 000 сум</td>
-            <td>
-              <span className="badge">В обработке</span>
-            </td>
-          </tr>
-          <tr>
-            <td>Комиссия партнёра #41</td>
-            <td>86 000 сум</td>
-            <td>
-              <span className="badge">Завершено</span>
-            </td>
-          </tr>
+          {transactions.map((item) => (
+            <tr key={item.title}>
+              <td>{item.title}</td>
+              <td>{item.amount}</td>
+              <td>
+                <span className="badge">{item.status}</span>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </main>

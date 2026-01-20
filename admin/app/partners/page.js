@@ -1,12 +1,9 @@
 import PageHeader from "../components/PageHeader";
 import Toolbar from "../components/Toolbar";
+import { getPartners } from "../../lib/mockApi";
 
-const partners = [
-  { name: "Kungrad Foods", outlets: 3, manager: "@kungrad_admin" },
-  { name: "Fresh Market", outlets: 2, manager: "@fresh_ops" }
-];
-
-export default function PartnersPage() {
+export default async function PartnersPage() {
+  const partners = await getPartners();
   return (
     <main>
       <PageHeader
