@@ -1,4 +1,5 @@
 import PageHeader from "../components/PageHeader";
+import Toolbar from "../components/Toolbar";
 
 const orders = [
   {
@@ -28,6 +29,17 @@ export default function OrdersPage() {
         title="Orders"
         description="Текущие заказы и ответственные курьеры."
       />
+      <Toolbar title="Фильтры заказов" actionLabel="Создать заказ">
+        <input className="input" placeholder="Поиск по номеру заказа" />
+        <select className="select">
+          <option>Все статусы</option>
+          <option>Принят системой</option>
+          <option>Принят рестораном</option>
+          <option>Готов к выдаче</option>
+          <option>Курьер забрал</option>
+          <option>Доставил</option>
+        </select>
+      </Toolbar>
       <table className="table">
         <thead>
           <tr>

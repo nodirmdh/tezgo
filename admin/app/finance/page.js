@@ -1,4 +1,5 @@
 import PageHeader from "../components/PageHeader";
+import Toolbar from "../components/Toolbar";
 
 const payouts = [
   { type: "Комиссия", amount: "7% от subtotal" },
@@ -10,6 +11,14 @@ export default function FinancePage() {
   return (
     <main>
       <PageHeader title="Finance" description="Сводка начислений и удержаний." />
+      <Toolbar title="Фильтры выплат" actionLabel="Экспорт">
+        <input className="input" placeholder="Поиск по транзакции" />
+        <select className="select">
+          <option>Все статусы</option>
+          <option>В обработке</option>
+          <option>Завершено</option>
+        </select>
+      </Toolbar>
       <div className="cards">
         {payouts.map((item) => (
           <div key={item.type} className="card">

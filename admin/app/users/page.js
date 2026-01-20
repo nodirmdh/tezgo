@@ -1,4 +1,5 @@
 import PageHeader from "../components/PageHeader";
+import Toolbar from "../components/Toolbar";
 
 const users = [
   { id: "TG-1021", username: "@aziza", status: "active", role: "Client" },
@@ -13,6 +14,17 @@ export default function UsersPage() {
         title="Users"
         description="Список пользователей Telegram и их статусы."
       />
+      <Toolbar title="Фильтры пользователей">
+        <input className="input" placeholder="Поиск по TG ID или username" />
+        <select className="select">
+          <option>Все роли</option>
+          <option>Client</option>
+          <option>Courier</option>
+          <option>Partner</option>
+          <option>Admin</option>
+          <option>Support</option>
+        </select>
+      </Toolbar>
       <table className="table">
         <thead>
           <tr>

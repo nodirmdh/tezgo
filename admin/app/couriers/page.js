@@ -1,4 +1,5 @@
 import PageHeader from "../components/PageHeader";
+import Toolbar from "../components/Toolbar";
 
 const couriers = [
   { name: "Шавкат А.", rating: 4.8, status: "active" },
@@ -10,6 +11,15 @@ export default function CouriersPage() {
   return (
     <main>
       <PageHeader title="Couriers" description="Курьеры и текущий статус работы." />
+      <Toolbar title="Фильтры курьеров">
+        <input className="input" placeholder="Поиск по имени курьера" />
+        <select className="select">
+          <option>Все статусы</option>
+          <option>active</option>
+          <option>paused</option>
+          <option>blocked</option>
+        </select>
+      </Toolbar>
       <table className="table">
         <thead>
           <tr>

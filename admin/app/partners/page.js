@@ -1,4 +1,5 @@
 import PageHeader from "../components/PageHeader";
+import Toolbar from "../components/Toolbar";
 
 const partners = [
   { name: "Kungrad Foods", outlets: 3, manager: "@kungrad_admin" },
@@ -12,6 +13,9 @@ export default function PartnersPage() {
         title="Partners"
         description="Партнёры и привязанные филиалы."
       />
+      <Toolbar title="Фильтры партнёров">
+        <input className="input" placeholder="Поиск по названию партнёра" />
+      </Toolbar>
       <table className="table">
         <thead>
           <tr>

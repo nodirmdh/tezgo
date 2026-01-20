@@ -1,4 +1,5 @@
 import PageHeader from "../components/PageHeader";
+import Toolbar from "../components/Toolbar";
 
 const clients = [
   { name: "Азиза Н.", phone: "+998 90 123 45 67", orders: 12 },
@@ -10,6 +11,14 @@ export default function ClientsPage() {
   return (
     <main>
       <PageHeader title="Clients" description="База клиентов и количество заказов." />
+      <Toolbar title="Фильтры клиентов">
+        <input className="input" placeholder="Поиск по имени или телефону" />
+        <select className="select">
+          <option>Все статусы</option>
+          <option>Активные</option>
+          <option>Заблокированные</option>
+        </select>
+      </Toolbar>
       <table className="table">
         <thead>
           <tr>

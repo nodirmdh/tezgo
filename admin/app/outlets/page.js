@@ -1,4 +1,5 @@
 import PageHeader from "../components/PageHeader";
+import Toolbar from "../components/Toolbar";
 
 const outlets = [
   { name: "Burger Way", type: "restaurant", address: "ул. Навои, 12" },
@@ -12,6 +13,14 @@ export default function OutletsPage() {
         title="Outlets"
         description="Список активных ресторанов и магазинов."
       />
+      <Toolbar title="Фильтры заведений">
+        <input className="input" placeholder="Поиск по названию или адресу" />
+        <select className="select">
+          <option>Все типы</option>
+          <option>restaurant</option>
+          <option>shop</option>
+        </select>
+      </Toolbar>
       <table className="table">
         <thead>
           <tr>
