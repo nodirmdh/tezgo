@@ -1,3 +1,5 @@
+import PageHeader from "../components/PageHeader";
+
 const users = [
   { id: "TG-1021", username: "@aziza", status: "active", role: "Client" },
   { id: "TG-874", username: "@jamshid", status: "blocked", role: "Courier" },
@@ -7,10 +9,10 @@ const users = [
 export default function UsersPage() {
   return (
     <main>
-      <header className="page-header">
-        <h1>Users</h1>
-        <p>Список пользователей Telegram и их статусы.</p>
-      </header>
+      <PageHeader
+        title="Users"
+        description="Список пользователей Telegram и их статусы."
+      />
       <table className="table">
         <thead>
           <tr>

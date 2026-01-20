@@ -1,3 +1,5 @@
+import PageHeader from "../components/PageHeader";
+
 const outlets = [
   { name: "Burger Way", type: "restaurant", address: "ул. Навои, 12" },
   { name: "Green Market", type: "shop", address: "пр. Мустакиллик, 88" }
@@ -6,10 +8,10 @@ const outlets = [
 export default function OutletsPage() {
   return (
     <main>
-      <header className="page-header">
-        <h1>Outlets</h1>
-        <p>Список активных ресторанов и магазинов.</p>
-      </header>
+      <PageHeader
+        title="Outlets"
+        description="Список активных ресторанов и магазинов."
+      />
       <table className="table">
         <thead>
           <tr>

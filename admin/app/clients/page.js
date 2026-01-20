@@ -1,3 +1,5 @@
+import PageHeader from "../components/PageHeader";
+
 const clients = [
   { name: "Азиза Н.", phone: "+998 90 123 45 67", orders: 12 },
   { name: "Отабек С.", phone: "+998 93 456 78 12", orders: 4 },
@@ -7,10 +9,7 @@ const clients = [
 export default function ClientsPage() {
   return (
     <main>
-      <header className="page-header">
-        <h1>Clients</h1>
-        <p>База клиентов и количество заказов.</p>
-      </header>
+      <PageHeader title="Clients" description="База клиентов и количество заказов." />
       <table className="table">
         <thead>
           <tr>

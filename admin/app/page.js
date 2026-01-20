@@ -1,3 +1,5 @@
+import PageHeader from "./components/PageHeader";
+
 const cards = [
   { title: "Заказы сегодня", value: "124" },
   { title: "Активные курьеры", value: "18" },
@@ -14,10 +16,10 @@ const recentOrders = [
 export default function HomePage() {
   return (
     <main>
-      <header className="page-header">
-        <h1>Дашборд</h1>
-        <p>Ключевые показатели и последние события платформы.</p>
-      </header>
+      <PageHeader
+        title="Дашборд"
+        description="Ключевые показатели и последние события платформы."
+      />
 
       <section className="cards">
         {cards.map((card) => (

@@ -1,3 +1,5 @@
+import PageHeader from "../components/PageHeader";
+
 const couriers = [
   { name: "Шавкат А.", rating: 4.8, status: "active" },
   { name: "Нодира К.", rating: 4.6, status: "active" },
@@ -7,10 +9,7 @@ const couriers = [
 export default function CouriersPage() {
   return (
     <main>
-      <header className="page-header">
-        <h1>Couriers</h1>
-        <p>Курьеры и текущий статус работы.</p>
-      </header>
+      <PageHeader title="Couriers" description="Курьеры и текущий статус работы." />
       <table className="table">
         <thead>
           <tr>

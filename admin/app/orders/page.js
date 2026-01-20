@@ -1,3 +1,5 @@
+import PageHeader from "../components/PageHeader";
+
 const orders = [
   {
     id: "ORD-1041",
@@ -22,10 +24,10 @@ const orders = [
 export default function OrdersPage() {
   return (
     <main>
-      <header className="page-header">
-        <h1>Orders</h1>
-        <p>Текущие заказы и ответственные курьеры.</p>
-      </header>
+      <PageHeader
+        title="Orders"
+        description="Текущие заказы и ответственные курьеры."
+      />
       <table className="table">
         <thead>
           <tr>

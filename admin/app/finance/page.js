@@ -1,3 +1,5 @@
+import PageHeader from "../components/PageHeader";
+
 const payouts = [
   { type: "Комиссия", amount: "7% от subtotal" },
   { type: "Сервисный сбор", amount: "5 000 сум" },
@@ -7,10 +9,7 @@ const payouts = [
 export default function FinancePage() {
   return (
     <main>
-      <header className="page-header">
-        <h1>Finance</h1>
-        <p>Сводка начислений и удержаний.</p>
-      </header>
+      <PageHeader title="Finance" description="Сводка начислений и удержаний." />
       <div className="cards">
         {payouts.map((item) => (
           <div key={item.type} className="card">

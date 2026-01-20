@@ -1,3 +1,5 @@
+import PageHeader from "../components/PageHeader";
+
 const partners = [
   { name: "Kungrad Foods", outlets: 3, manager: "@kungrad_admin" },
   { name: "Fresh Market", outlets: 2, manager: "@fresh_ops" }
@@ -6,10 +8,10 @@ const partners = [
 export default function PartnersPage() {
   return (
     <main>
-      <header className="page-header">
-        <h1>Partners</h1>
-        <p>Партнёры и привязанные филиалы.</p>
-      </header>
+      <PageHeader
+        title="Partners"
+        description="Партнёры и привязанные филиалы."
+      />
       <table className="table">
         <thead>
           <tr>
