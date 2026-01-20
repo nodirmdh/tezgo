@@ -10,6 +10,33 @@ export default async function PartnersPage() {
         title="Partners"
         description="Партнёры и привязанные филиалы."
       />
+      <div className="form-grid">
+        <div className="card-title">Создать партнёра</div>
+        <div className="form-row two">
+          <div className="auth-field">
+            <label htmlFor="partnerName">Название партнёра</label>
+            <input
+              id="partnerName"
+              className="input"
+              placeholder="Kungrad Foods"
+            />
+          </div>
+          <div className="auth-field">
+            <label htmlFor="partnerManager">Менеджер (username)</label>
+            <input
+              id="partnerManager"
+              className="input"
+              placeholder="@partner_manager"
+            />
+          </div>
+        </div>
+        <button className="button" type="button">
+          Добавить партнёра
+        </button>
+        <div className="helper-text">
+          Используется для онбординга партнёров через админку.
+        </div>
+      </div>
       <Toolbar title="Фильтры партнёров">
         <input className="input" placeholder="Поиск по названию партнёра" />
       </Toolbar>

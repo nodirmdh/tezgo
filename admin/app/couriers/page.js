@@ -7,6 +7,26 @@ export default async function CouriersPage() {
   return (
     <main>
       <PageHeader title="Couriers" description="Курьеры и текущий статус работы." />
+      <div className="form-grid">
+        <div className="card-title">Добавить курьера</div>
+        <div className="form-row two">
+          <div className="auth-field">
+            <label htmlFor="courierName">Имя курьера</label>
+            <input
+              id="courierName"
+              className="input"
+              placeholder="Шавкат А."
+            />
+          </div>
+          <div className="auth-field">
+            <label htmlFor="courierTg">Telegram ID</label>
+            <input id="courierTg" className="input" placeholder="123456789" />
+          </div>
+        </div>
+        <button className="button" type="button">
+          Создать курьера
+        </button>
+      </div>
       <Toolbar title="Фильтры курьеров">
         <input className="input" placeholder="Поиск по имени курьера" />
         <select className="select">
