@@ -163,6 +163,17 @@ a {
   margin-bottom: 24px;
 }
 
+.card-title {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.card-value {
+  font-size: 20px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -170,6 +181,28 @@ a {
   justify-content: space-between;
   gap: 12px;
   margin: 16px 0;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.filter-chip {
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  background: #0f172a;
+  color: #fff;
+  border-color: #0f172a;
 }
 
 .toolbar-title {
@@ -378,6 +411,10 @@ a {
 
 .table tr:last-child td {
   border-bottom: none;
+}
+
+.row-highlight td {
+  background: #fff1f2;
 }
 
 .badge {

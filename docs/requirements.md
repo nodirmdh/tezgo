@@ -20,3 +20,6 @@ Client, Courier, Partner, Admin, Support, Operator, Read-only.
   - Загрузка CSV с обязательным preview перед применением.
   - Поддержка меню outlet и campaign items.
   - Применение изменений атомарно с логированием.
+- Operational Dashboard:
+  - KPI и проблемные заказы за выбранный период.
+  - Топ outlets/couriers по задержкам и фильтры по проблемам.

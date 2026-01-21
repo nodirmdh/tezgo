@@ -3990,6 +3990,302 @@ app.get("/api/dashboard/summary", (_req, res) => {
   });
 });
 
+app.get(
+  "/api/dashboard/ops",
+  requireRole(["admin", "support", "operator", "read-only"]),
+  (req, res) => {
+    const now = new Date();
+    const dateFromRaw = req.query.dateFrom ? String(req.query.dateFrom) : null;
+    const dateToRaw = req.query.dateTo ? String(req.query.dateTo) : null;
+    const dateFrom = dateFromRaw
+      ? new Date(dateFromRaw).toISOString()
+      : new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const dateTo = dateToRaw ? new Date(dateToRaw).toISOString() : now.toISOString();
+    const outletId = req.query.outletId ? Number(req.query.outletId) : null;
+    const problematicOnly =
+      req.query.problematicOnly === undefined
+        ? true
+        : String(req.query.problematicOnly) === "true";
+    const problemKey = req.query.problemKey ? String(req.query.problemKey) : null;
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const offset = (page - 1) * limit;
+
+    const { conditions, params } = buildFilters([
+      { value: dateFrom, clause: "orders.created_at >= @date_from", paramName: "date_from" },
+      { value: dateTo, clause: "orders.created_at <= @date_to", paramName: "date_to" },
+      { value: outletId, clause: "orders.outlet_id = @outlet_id", paramName: "outlet_id" }
+    ]);
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = db
+      .prepare(
+        `SELECT orders.id,
+                orders.order_number,
+                orders.status,
+                orders.created_at,
+                orders.accepted_at,
+                orders.ready_at,
+                orders.picked_up_at,
+                orders.delivered_at,
+                orders.outlet_id,
+                orders.courier_user_id,
+                orders.client_user_id,
+                outlets.name as outlet_name,
+                courier.username as courier_name,
+                clients.full_name as client_name,
+                clients.phone as client_phone
+         FROM orders
+         LEFT JOIN outlets ON outlets.id = orders.outlet_id
+         LEFT JOIN users courier ON courier.id = orders.courier_user_id
+         LEFT JOIN clients ON clients.user_id = orders.client_user_id
+         ${where}`
+      )
+      .all(params);
+
+    const eventsMap = fetchOrderEventsMap(rows.map((row) => row.id));
+    const problemKeyMap = {
+      courier_search: "COURIER_SEARCH_DELAYED",
+      cooking: "COOKING_DELAYED",
+      waiting_pickup: "READY_WAITING_PICKUP",
+      delivery: "DELIVERY_DELAYED"
+    };
+
+    const enriched = rows.map((row) => {
+      const events = eventsMap[row.id] || [];
+      const signals = computeOrderSignals(row, events);
+      const createdAtMs = toMs(row.created_at);
+      const ageMinutes = createdAtMs ? Math.max(0, minutesBetween(createdAtMs, Date.now())) : null;
+      return {
+        order: row,
+        events,
+        signals,
+        ageMinutes
+      };
+    });
+
+    const ordersCount = rows.length;
+    const cancelCount = rows.filter((row) => row.status === "cancelled").length;
+    const cancelRate = ordersCount
+      ? Number(((cancelCount / ordersCount) * 100).toFixed(1))
+      : 0;
+    const activeProblemsCount = enriched.filter(({ order, signals }) =>
+      !["delivered", "cancelled"].includes(order.status) && signals.problemsCount > 0
+    ).length;
+    const delayedOrdersCount = enriched.filter(
+      ({ signals }) =>
+        signals.slaSummary?.breaches &&
+        Object.values(signals.slaSummary.breaches).some(Boolean)
+    ).length;
+
+    const deliveryDurations = [];
+    const courierSearchDurations = [];
+
+    const outletStats = new Map();
+    const courierStats = new Map();
+
+    const addDuration = (list, value) => {
+      if (value === null || value === undefined || Number.isNaN(value)) return;
+      list.push(value);
+    };
+
+    enriched.forEach(({ order, events, signals }) => {
+      const courierSearchStart = getEventTime(events, ["courier_search_started"]);
+      const courierAssigned = getEventTime(events, ["courier_assigned"]);
+      const cookingStart =
+        getEventTime(events, [
+          "accepted",
+          "accepted_by_outlet",
+          "accepted_by_restaurant",
+          "cooking_started"
+        ]) ?? toMs(order.accepted_at);
+      const readyAt =
+        getEventTime(events, ["ready", "ready_for_pickup"]) ?? toMs(order.ready_at);
+      const pickedUpAt =
+        getEventTime(events, ["picked_up", "out_for_delivery"]) ??
+        toMs(order.picked_up_at);
+      const deliveredAt = getEventTime(events, ["delivered"]) ?? toMs(order.delivered_at);
+
+      addDuration(
+        courierSearchDurations,
+        courierSearchStart && courierAssigned
+          ? minutesBetween(courierSearchStart, courierAssigned)
+          : null
+      );
+      addDuration(
+        deliveryDurations,
+        pickedUpAt && deliveredAt ? minutesBetween(pickedUpAt, deliveredAt) : null
+      );
+
+      const outletKey = order.outlet_id;
+      if (outletKey) {
+        if (!outletStats.has(outletKey)) {
+          outletStats.set(outletKey, {
+            outletId: order.outlet_id,
+            outletName: order.outlet_name || `Outlet ${order.outlet_id}`,
+            problemOrdersCount: 0,
+            cancelsCount: 0,
+            cookingTotal: 0,
+            cookingCount: 0,
+            readyPickupTotal: 0,
+            readyPickupCount: 0
+          });
+        }
+        const stats = outletStats.get(outletKey);
+        if (signals.problemsCount > 0) stats.problemOrdersCount += 1;
+        if (order.status === "cancelled") stats.cancelsCount += 1;
+        const cookingMinutes =
+          cookingStart && readyAt ? minutesBetween(cookingStart, readyAt) : null;
+        if (cookingMinutes !== null) {
+          stats.cookingTotal += cookingMinutes;
+          stats.cookingCount += 1;
+        }
+        const readyPickupMinutes =
+          readyAt && pickedUpAt ? minutesBetween(readyAt, pickedUpAt) : null;
+        if (readyPickupMinutes !== null) {
+          stats.readyPickupTotal += readyPickupMinutes;
+          stats.readyPickupCount += 1;
+        }
+      }
+
+      if (order.courier_user_id) {
+        if (!courierStats.has(order.courier_user_id)) {
+          courierStats.set(order.courier_user_id, {
+            courierId: order.courier_user_id,
+            courierName: order.courier_name || `Courier ${order.courier_user_id}`,
+            problemOrdersCount: 0,
+            pickupDelayTotal: 0,
+            pickupDelayCount: 0,
+            deliveryTotal: 0,
+            deliveryCount: 0
+          });
+        }
+        const stats = courierStats.get(order.courier_user_id);
+        if (signals.problemsCount > 0) stats.problemOrdersCount += 1;
+        const pickupDelay =
+          readyAt && pickedUpAt ? minutesBetween(readyAt, pickedUpAt) : null;
+        if (pickupDelay !== null) {
+          stats.pickupDelayTotal += pickupDelay;
+          stats.pickupDelayCount += 1;
+        }
+        const deliveryMinutes =
+          pickedUpAt && deliveredAt ? minutesBetween(pickedUpAt, deliveredAt) : null;
+        if (deliveryMinutes !== null) {
+          stats.deliveryTotal += deliveryMinutes;
+          stats.deliveryCount += 1;
+        }
+      }
+    });
+
+    const avgDeliveryMin = deliveryDurations.length
+      ? Math.round(deliveryDurations.reduce((sum, value) => sum + value, 0) / deliveryDurations.length)
+      : null;
+    const avgCourierSearchMin = courierSearchDurations.length
+      ? Math.round(courierSearchDurations.reduce((sum, value) => sum + value, 0) / courierSearchDurations.length)
+      : null;
+
+    const topOutlets = Array.from(outletStats.values())
+      .map((stats) => ({
+        outletId: stats.outletId,
+        outletName: stats.outletName,
+        problemOrdersCount: stats.problemOrdersCount,
+        avgCookingMin: stats.cookingCount
+          ? Math.round(stats.cookingTotal / stats.cookingCount)
+          : null,
+        avgReadyPickupMin: stats.readyPickupCount
+          ? Math.round(stats.readyPickupTotal / stats.readyPickupCount)
+          : null,
+        cancelsCount: stats.cancelsCount
+      }))
+      .sort((a, b) => b.problemOrdersCount - a.problemOrdersCount)
+      .slice(0, 10);
+
+    const topCouriersRaw = Array.from(courierStats.values())
+      .map((stats) => ({
+        courierId: stats.courierId,
+        courierName: stats.courierName,
+        problemOrdersCount: stats.problemOrdersCount,
+        avgPickupDelayMin: stats.pickupDelayCount
+          ? Math.round(stats.pickupDelayTotal / stats.pickupDelayCount)
+          : null,
+        avgDeliveryMin: stats.deliveryCount
+          ? Math.round(stats.deliveryTotal / stats.deliveryCount)
+          : null
+      }))
+      .sort((a, b) => b.problemOrdersCount - a.problemOrdersCount)
+      .slice(0, 10);
+
+    const hasCouriers = topCouriersRaw.length > 0;
+
+    const filtered = enriched
+      .filter(({ signals }) => (problematicOnly ? signals.problemsCount > 0 : true))
+      .filter(({ signals }) => {
+        if (!problemKey) return true;
+        const key = problemKeyMap[problemKey];
+        if (!key) return true;
+        return signals.problems.some((problem) => problem.key === key);
+      })
+      .map(({ order, signals, ageMinutes }) => {
+        const severityRank = signals.overallSeverityRank;
+        const severity =
+          severityRank === 3 ? "P1" : severityRank === 2 ? "P2" : "P3";
+        return {
+          orderId: order.id,
+          status: order.status,
+          severity,
+          severityRank,
+          primaryProblemTitle: signals.primaryProblemTitle,
+          slaSummary: {
+            courierSearch: signals.slaSummary.courierSearchMinutes,
+            cooking: signals.slaSummary.cookingMinutes,
+            waitingPickup: signals.slaSummary.waitingPickupMinutes,
+            delivery: signals.slaSummary.deliveryMinutes
+          },
+          outlet: order.outlet_id
+            ? { id: order.outlet_id, name: order.outlet_name || `Outlet ${order.outlet_id}` }
+            : null,
+          courier: order.courier_user_id
+            ? { id: order.courier_user_id, name: order.courier_name || `Courier ${order.courier_user_id}` }
+            : null,
+          client: {
+            id: order.client_user_id,
+            name: order.client_name || `Client ${order.client_user_id}`,
+            phone: order.client_phone || "-"
+          },
+          orderNumber: order.order_number,
+          createdAt: order.created_at,
+          ageMinutes
+        };
+      })
+      .sort((a, b) => {
+        if (b.severityRank !== a.severityRank) {
+          return b.severityRank - a.severityRank;
+        }
+        return (b.ageMinutes || 0) - (a.ageMinutes || 0);
+      });
+
+    const total = filtered.length;
+    const paged = filtered.slice(offset, offset + limit);
+
+    res.json({
+      kpis: {
+        ordersCount,
+        activeProblemsCount,
+        avgDeliveryMin,
+        avgCourierSearchMin,
+        cancelRate,
+        delayedOrdersCount
+      },
+      problemOrders: {
+        items: paged,
+        pageInfo: { page, limit, total }
+      },
+      topOutlets,
+      topCouriers: hasCouriers ? topCouriersRaw : null
+    });
+  }
+);
+
 app.get("/api/finance/ledger", (req, res) => {
   const { q, status, type, user_id, outlet_id, partner_id, date_from, date_to } =
     req.query;

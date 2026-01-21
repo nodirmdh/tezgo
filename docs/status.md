@@ -7,7 +7,7 @@
 - Этап 4 (Partners/Outlets): готово. Список и карточка, разделы Outlets/Orders/Notes.
 - Этап 5 (Finance): готово. Read-only отчёты, выгрузка CSV.
 - Этап 6 (Promos): готово. Список и карточка с деталями.
-- Этап 7 (Dashboard): готово. KPI и problem orders.
+- Этап 7 (Dashboard): готово. Operational dashboard с KPI, проблемными заказами и топами задержек.
 - Этап 8 (Audit): готово. Журнал действий.
 
 - В работе: адреса клиентов и промо (issue/revoke) в карточке клиента.
