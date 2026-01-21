@@ -1,6 +1,8 @@
-﻿"use client";
+"use client";
 
 import { useMemo } from "react";
+import { translateRole, translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : "-");
 
@@ -11,6 +13,7 @@ export default function UserOverview({
   onDelete,
   onToast
 }) {
+  const { locale, t } = useLocale();
   const isAdmin = useMemo(() => role === "Admin", [role]);
 
   const handleSubmit = async (event, action) => {
@@ -23,7 +26,7 @@ export default function UserOverview({
   return (
     <div className="profile-grid">
       <section className="card profile-card">
-        <div className="profile-title">РћСЃРЅРѕРІРЅР°СЏ РёРЅС„РѕСЂРјР°С†РёСЏ</div>
+        <div className="profile-title">{t("users.overview.title")}</div>
         <div className="profile-row">
           <span className="muted">TG ID</span>
           <span>{user.tg_id}</span>
@@ -33,33 +36,33 @@ export default function UserOverview({
           <span>{user.username}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">Role</span>
-          <span>{user.role}</span>
+          <span className="muted">{t("users.table.role")}</span>
+          <span>{translateRole(locale, user.role)}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">Status</span>
-          <span>{user.status}</span>
+          <span className="muted">{t("users.table.status")}</span>
+          <span>{translateStatus(locale, user.status)}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">CreatedAt</span>
+          <span className="muted">{t("users.fields.createdAt")}</span>
           <span>{formatDate(user.created_at)}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">UpdatedAt</span>
+          <span className="muted">{t("users.fields.updatedAt")}</span>
           <span>{formatDate(user.updated_at)}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">LastActive</span>
+          <span className="muted">{t("users.fields.lastActive")}</span>
           <span>{formatDate(user.last_active)}</span>
         </div>
       </section>
 
       <section className="card profile-card">
-        <div className="profile-title">Р”РµР№СЃС‚РІРёСЏ</div>
+        <div className="profile-title">{t("users.overview.actions")}</div>
         <div className="action-grid">
           <form onSubmit={(event) => handleSubmit(event, onUpdate)}>
             <div className="auth-field">
-              <label htmlFor="username">РР·РјРµРЅРёС‚СЊ username</label>
+              <label htmlFor="username">{t("users.overview.changeUsername")}</label>
               <input
                 id="username"
                 name="username"
@@ -68,41 +71,41 @@ export default function UserOverview({
               />
             </div>
             <button className="button" type="submit">
-              РЎРѕС…СЂР°РЅРёС‚СЊ
+              {t("common.save")}
             </button>
           </form>
 
           <form onSubmit={(event) => handleSubmit(event, onUpdate)}>
             <div className="auth-field">
-              <label htmlFor="role">РР·РјРµРЅРёС‚СЊ СЂРѕР»СЊ</label>
+              <label htmlFor="role">{t("users.overview.changeRole")}</label>
               <select id="role" name="role" className="select">
-                <option value="">Р’С‹Р±РµСЂРёС‚Рµ СЂРѕР»СЊ</option>
-                <option value="client">client</option>
-                <option value="courier">courier</option>
-                <option value="partner">partner</option>
-                <option value="admin">admin</option>
-                <option value="support">support</option>
+                <option value="">{t("users.overview.chooseRole")}</option>
+                {["client", "courier", "partner", "admin", "support"].map((item) => (
+                  <option key={item} value={item}>
+                    {translateRole(locale, item)}
+                  </option>
+                ))}
               </select>
             </div>
             <button className="button" type="submit" disabled={!isAdmin}>
-              РР·РјРµРЅРёС‚СЊ СЂРѕР»СЊ
+              {t("users.overview.changeRole")}
             </button>
             {!isAdmin ? (
-              <div className="helper-text">РўРѕР»СЊРєРѕ РґР»СЏ admin</div>
+              <div className="helper-text">{t("users.overview.onlyAdmin")}</div>
             ) : null}
           </form>
 
           <form onSubmit={(event) => handleSubmit(event, onUpdate)}>
             <div className="auth-field">
-              <label htmlFor="status">Block/Unblock</label>
+              <label htmlFor="status">{t("users.overview.changeStatus")}</label>
               <select id="status" name="status" className="select">
-                <option value="">Р’С‹Р±РµСЂРёС‚Рµ СЃС‚Р°С‚СѓСЃ</option>
-                <option value="active">Unblock</option>
-                <option value="blocked">Block</option>
+                <option value="">{t("users.overview.chooseStatus")}</option>
+                <option value="active">{t("users.overview.unblock")}</option>
+                <option value="blocked">{t("users.overview.block")}</option>
               </select>
             </div>
             <button className="button" type="submit" disabled={!isAdmin}>
-              РџСЂРёРјРµРЅРёС‚СЊ
+              {t("common.apply")}
             </button>
           </form>
 
@@ -111,21 +114,19 @@ export default function UserOverview({
               onSubmit={async (event) => {
                 event.preventDefault();
                 await onDelete();
-                onToast("РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ СѓРґР°Р»РµРЅ", "success");
+                onToast(t("users.toasts.deleted"), "success");
               }}
             >
               <div className="auth-field">
-                <label>РЈРґР°Р»РёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ</label>
-                <div className="helper-text">
-                  Р”РµР№СЃС‚РІРёРµ РЅРµРѕР±СЂР°С‚РёРјРѕ
-                </div>
+                <label>{t("users.overview.deleteUser")}</label>
+                <div className="helper-text">{t("users.overview.deleteWarning")}</div>
               </div>
               <button className="button danger" type="submit">
-                Delete
+                {t("common.delete")}
               </button>
             </form>
           ) : (
-            <div className="helper-text">РЈРґР°Р»РµРЅРёРµ РґРѕСЃС‚СѓРїРЅРѕ С‚РѕР»СЊРєРѕ admin</div>
+            <div className="helper-text">{t("users.overview.deleteOnlyAdmin")}</div>
           )}
         </div>
       </section>

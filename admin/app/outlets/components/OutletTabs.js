@@ -1,14 +1,17 @@
 "use client";
 
+import { useLocale } from "../../components/LocaleProvider";
+
 const tabs = [
-  { id: "overview", label: "Overview" },
-  { id: "menu", label: "Menu / Products" },
-  { id: "campaigns", label: "Campaigns" },
-  { id: "orders", label: "Orders" },
-  { id: "notes", label: "Notes" }
+  { id: "overview", labelKey: "tabs.overview" },
+  { id: "menu", labelKey: "tabs.menu" },
+  { id: "campaigns", labelKey: "tabs.campaigns" },
+  { id: "orders", labelKey: "tabs.orders" },
+  { id: "notes", labelKey: "tabs.notes" }
 ];
 
 export default function OutletTabs({ active, onChange }) {
+  const { t } = useLocale();
   return (
     <div className="tabs">
       {tabs.map((tab) => (
@@ -18,7 +21,7 @@ export default function OutletTabs({ active, onChange }) {
           className={`tab ${active === tab.id ? "active" : ""}`}
           onClick={() => onChange(tab.id)}
         >
-          {tab.label}
+          {t(tab.labelKey)}
         </button>
       ))}
     </div>

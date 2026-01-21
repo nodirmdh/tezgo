@@ -4,7 +4,10 @@ import AuditListClient from "./AuditListClient";
 export default function AuditPage() {
   return (
     <main>
-      <PageHeader title="Audit" description="Change history across entities." />
+      <PageHeader
+        titleKey="pages.audit.title"
+        descriptionKey="pages.audit.description"
+      />
       <AuditListClient />
     </main>
   );

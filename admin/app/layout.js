@@ -1,7 +1,9 @@
-﻿import "./globals.css";
+import "./globals.css";
 import AuthGuard from "./components/AuthGuard";
 import Sidebar from "./components/Sidebar";
 import GlobalSearch from "./components/GlobalSearch";
+import { LocaleProvider } from "./components/LocaleProvider";
+import LanguageSwitcher from "./components/LanguageSwitcher";
 
 export const metadata = {
   title: "Kungrad Admin",
@@ -12,17 +14,20 @@ export default function RootLayout({ children }) {
   return (
     <html lang="ru">
       <body>
-        <AuthGuard>
-          <div className="layout">
-            <Sidebar />
-            <div className="content">
-              <div className="topbar">
-                <GlobalSearch />
+        <LocaleProvider>
+          <AuthGuard>
+            <div className="layout">
+              <Sidebar />
+              <div className="content">
+                <div className="topbar">
+                  <GlobalSearch />
+                  <LanguageSwitcher />
+                </div>
+                {children}
               </div>
-              {children}
             </div>
-          </div>
-        </AuthGuard>
+          </AuthGuard>
+        </LocaleProvider>
       </body>
     </html>
   );

@@ -1,20 +1,21 @@
-﻿import PageHeader from "./components/PageHeader";
+import PageHeader from "./components/PageHeader";
 import { getDashboardSummary } from "../lib/dataApi";
+import { getServerLocale } from "../lib/i18n.server";
+import { t, translateStatus } from "../lib/i18n";
 
 export default async function HomePage() {
+  const locale = getServerLocale();
   const { cards, recentOrders } = await getDashboardSummary();
+
   return (
     <main>
-      <PageHeader
-        title="Р”Р°С€Р±РѕСЂРґ"
-        description="РљР»СЋС‡РµРІС‹Рµ РїРѕРєР°Р·Р°С‚РµР»Рё Рё РїРѕСЃР»РµРґРЅРёРµ СЃРѕР±С‹С‚РёСЏ РїР»Р°С‚С„РѕСЂРјС‹."
-      />
+      <PageHeader titleKey="dashboard.title" descriptionKey="dashboard.description" />
 
       <section className="cards">
         {cards.map((card) => (
-          <div key={card.title} className="card">
+          <div key={card.titleKey || card.title} className="card">
             <div style={{ color: "#64748B", fontSize: "13px" }}>
-              {card.title}
+              {card.titleKey ? t(locale, card.titleKey) : card.title}
             </div>
             <div style={{ fontSize: "20px", fontWeight: 600, marginTop: "6px" }}>
               {card.value}
@@ -24,13 +25,13 @@ export default async function HomePage() {
       </section>
 
       <section>
-        <h2 style={{ marginBottom: "12px" }}>РџРѕСЃР»РµРґРЅРёРµ Р·Р°РєР°Р·С‹</h2>
+        <h2 style={{ marginBottom: "12px" }}>{t(locale, "dashboard.recentOrders")}</h2>
         <table className="table">
           <thead>
             <tr>
-              <th>РќРѕРјРµСЂ</th>
-              <th>Р—Р°РІРµРґРµРЅРёРµ</th>
-              <th>РЎС‚Р°С‚СѓСЃ</th>
+              <th>{t(locale, "dashboard.table.orderId")}</th>
+              <th>{t(locale, "dashboard.table.outlet")}</th>
+              <th>{t(locale, "dashboard.table.status")}</th>
             </tr>
           </thead>
           <tbody>
@@ -39,7 +40,9 @@ export default async function HomePage() {
                 <td>{order.id}</td>
                 <td>{order.outlet}</td>
                 <td>
-                  <span className="badge">{order.status}</span>
+                  <span className="badge">
+                    {order.status ? translateStatus(locale, order.status) : "-"}
+                  </span>
                 </td>
               </tr>
             ))}

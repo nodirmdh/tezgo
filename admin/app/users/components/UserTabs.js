@@ -1,14 +1,17 @@
-﻿"use client";
+"use client";
+
+import { useLocale } from "../../components/LocaleProvider";
 
 const tabs = [
-  { id: "overview", label: "Overview" },
-  { id: "orders", label: "Orders" },
-  { id: "finance", label: "Finance" },
-  { id: "activity", label: "Activity / Logs" },
-  { id: "audit", label: "Audit" }
+  { id: "overview", labelKey: "tabs.overview" },
+  { id: "orders", labelKey: "tabs.orders" },
+  { id: "finance", labelKey: "tabs.finance" },
+  { id: "activity", labelKey: "tabs.activity" },
+  { id: "audit", labelKey: "tabs.audit" }
 ];
 
 export default function UserTabs({ active, onChange }) {
+  const { t } = useLocale();
   return (
     <div className="tabs">
       {tabs.map((tab) => (
@@ -18,7 +21,7 @@ export default function UserTabs({ active, onChange }) {
           className={`tab ${active === tab.id ? "active" : ""}`}
           onClick={() => onChange(tab.id)}
         >
-          {tab.label}
+          {t(tab.labelKey)}
         </button>
       ))}
     </div>

@@ -1,8 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { searchAll } from "../../lib/api/search";
+import { translateRole, translateStatus } from "../../lib/i18n";
+import { useLocale } from "./LocaleProvider";
 
 const highlightText = (text, query) => {
   if (!query) return text;
@@ -18,6 +20,7 @@ const highlightText = (text, query) => {
 };
 
 export default function GlobalSearch() {
+  const { locale, t } = useLocale();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -128,7 +131,7 @@ export default function GlobalSearch() {
     >
       <input
         className="input"
-        placeholder="Search user, client, phone, order…"
+        placeholder={t("globalSearch.placeholder")}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         onFocus={() => query && setOpen(true)}
@@ -136,13 +139,13 @@ export default function GlobalSearch() {
       />
       {open ? (
         <div className="search-dropdown">
-          {loading ? <div className="search-loading">Loading…</div> : null}
+          {loading ? <div className="search-loading">{t("globalSearch.loading")}</div> : null}
           {!loading && !hasResults ? (
-            <div className="search-empty">No results found</div>
+            <div className="search-empty">{t("globalSearch.empty")}</div>
           ) : null}
           {!loading && results.users.length ? (
             <div className="search-group">
-              <div className="search-group-title">USERS</div>
+              <div className="search-group-title">{t("globalSearch.groups.users")}</div>
               {results.users.map((item, index) => (
                 <Link
                   key={`user-${item.id}`}
@@ -154,7 +157,7 @@ export default function GlobalSearch() {
                     {highlightText(item.username || item.tgId, query)}
                   </div>
                   <div className="search-meta">
-                    {item.tgId} · {item.role}
+                    {item.tgId} · {translateRole(locale, item.role)}
                   </div>
                 </Link>
               ))}
@@ -162,7 +165,7 @@ export default function GlobalSearch() {
           ) : null}
           {!loading && results.clients.length ? (
             <div className="search-group">
-              <div className="search-group-title">CLIENTS</div>
+              <div className="search-group-title">{t("globalSearch.groups.clients")}</div>
               {results.clients.map((item, index) => {
                 const offset = results.users.length;
                 const currentIndex = offset + index;
@@ -184,7 +187,7 @@ export default function GlobalSearch() {
           ) : null}
           {!loading && results.orders.length ? (
             <div className="search-group">
-              <div className="search-group-title">ORDERS</div>
+              <div className="search-group-title">{t("globalSearch.groups.orders")}</div>
               {results.orders.map((item, index) => {
                 const offset = results.users.length + results.clients.length;
                 const currentIndex = offset + index;
@@ -199,7 +202,8 @@ export default function GlobalSearch() {
                       {highlightText(item.orderId, query)}
                     </div>
                     <div className="search-meta">
-                      {item.amount ? `${item.amount} сум` : "-"} · {item.status}
+                      {item.amount ? `${item.amount}` : "-"} ·{" "}
+                      {translateStatus(locale, item.status)}
                     </div>
                   </Link>
                 );

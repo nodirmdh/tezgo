@@ -1,22 +1,24 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Toast from "../../components/Toast";
 import useConfirm from "../../components/useConfirm";
 import { apiJson } from "../../../lib/api/client";
-
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 const sortOptions = [
-  { value: "name:asc", label: "РРјСЏ Aв†’Z" },
-  { value: "name:desc", label: "РРјСЏ Zв†’A" },
-  { value: "phone:asc", label: "РўРµР»РµС„РѕРЅ" },
-  { value: "ordersCount:desc", label: "Р—Р°РєР°Р·РѕРІ" },
-  { value: "status:asc", label: "РЎС‚Р°С‚СѓСЃ" },
-  { value: "lastOrderAt:desc", label: "РџРѕСЃР»РµРґРЅРёР№ Р·Р°РєР°Р·" }
+  { value: "name:asc", labelKey: "clients.sort.nameAsc" },
+  { value: "name:desc", labelKey: "clients.sort.nameDesc" },
+  { value: "phone:asc", labelKey: "clients.sort.phone" },
+  { value: "ordersCount:desc", labelKey: "clients.sort.orders" },
+  { value: "status:asc", labelKey: "clients.sort.status" },
+  { value: "lastOrderAt:desc", labelKey: "clients.sort.lastOrder" }
 ];
 
 export default function ClientListClient() {
+  const { locale, t } = useLocale();
   const [data, setData] = useState({ items: [], page: 1, limit: 10, total: 0 });
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
@@ -62,29 +64,32 @@ export default function ClientListClient() {
   const handleBlockToggle = async (client) => {
     const nextStatus = client.status === "active" ? "blocked" : "active";
     confirm({
-      title: nextStatus === "blocked" ? "Р—Р°Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ РєР»РёРµРЅС‚Р°?" : "Р Р°Р·Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ РєР»РёРµРЅС‚Р°?",
-      description: "Р’С‹ СѓРІРµСЂРµРЅС‹, С‡С‚Рѕ С…РѕС‚РёС‚Рµ РёР·РјРµРЅРёС‚СЊ СЃС‚Р°С‚СѓСЃ РєР»РёРµРЅС‚Р°?",
+      title:
+        nextStatus === "blocked"
+          ? t("clients.confirm.blockTitle")
+          : t("clients.confirm.unblockTitle"),
+      description: t("clients.confirm.description"),
       onConfirm: async () => {
         const result = await apiJson(`/api/clients/${client.id}`, {
           method: "PATCH",
           body: JSON.stringify({ status: nextStatus })
         });
         if (!result.ok) {
-          setToast({ type: "error", message: result.error });
+          setToast({ type: "error", message: t(result.error) });
           return;
         }
-        setToast({ type: "success", message: "РЎС‚Р°С‚СѓСЃ РѕР±РЅРѕРІР»РµРЅ" });
+        setToast({ type: "success", message: t("clients.toasts.statusUpdated") });
         fetchClients(query);
       }
     });
   };
 
   const handleEdit = async (client) => {
-    const name = window.prompt("РРјСЏ РєР»РёРµРЅС‚Р°", client.name || "");
+    const name = window.prompt(t("clients.prompts.name"), client.name || "");
     if (name === null) {
       return;
     }
-    const phone = window.prompt("РўРµР»РµС„РѕРЅ", client.phone || "");
+    const phone = window.prompt(t("clients.prompts.phone"), client.phone || "");
     if (phone === null) {
       return;
     }
@@ -93,10 +98,10 @@ export default function ClientListClient() {
       body: JSON.stringify({ name, phone })
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Р”Р°РЅРЅС‹Рµ РѕР±РЅРѕРІР»РµРЅС‹" });
+    setToast({ type: "success", message: t("clients.toasts.updated") });
     fetchClients(query);
   };
 
@@ -112,7 +117,7 @@ export default function ClientListClient() {
         <div className="toolbar-actions">
           <input
             className="input"
-            placeholder="РџРѕРёСЃРє РїРѕ РёРјРµРЅРё РёР»Рё С‚РµР»РµС„РѕРЅСѓ"
+            placeholder={t("clients.searchPlaceholder")}
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
@@ -127,9 +132,12 @@ export default function ClientListClient() {
               setPage(1);
             }}
           >
-            <option value="">Р’СЃРµ СЃС‚Р°С‚СѓСЃС‹</option>
-            <option value="active">active</option>
-            <option value="blocked">blocked</option>
+            <option value="">{t("clients.allStatuses")}</option>
+            {["active", "blocked"].map((item) => (
+              <option key={item} value={item}>
+                {translateStatus(locale, item)}
+              </option>
+            ))}
           </select>
           <select
             className="select"
@@ -138,13 +146,13 @@ export default function ClientListClient() {
           >
             {sortOptions.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {t(option.labelKey)}
               </option>
             ))}
           </select>
         </div>
       </div>
-      {error ? <div className="banner error">{error}</div> : null}
+      {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (
         <div className="form-grid">
           {[...Array(6)].map((_, index) => (
@@ -155,11 +163,11 @@ export default function ClientListClient() {
         <table className="table">
           <thead>
             <tr>
-              <th>РљР»РёРµРЅС‚</th>
-              <th>РўРµР»РµС„РѕРЅ</th>
-              <th>Р—Р°РєР°Р·РѕРІ</th>
-              <th>РЎС‚Р°С‚СѓСЃ</th>
-              <th>Actions</th>
+              <th>{t("clients.table.client")}</th>
+              <th>{t("clients.table.phone")}</th>
+              <th>{t("clients.table.orders")}</th>
+              <th>{t("clients.table.status")}</th>
+              <th>{t("common.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -169,26 +177,28 @@ export default function ClientListClient() {
                 <td>{client.phone || "-"}</td>
                 <td>{client.orders_count}</td>
                 <td>
-                  <span className="badge">{client.status}</span>
+                  <span className="badge">{translateStatus(locale, client.status)}</span>
                 </td>
                 <td>
                   <div className="table-actions">
                     <Link className="action-link" href={`/clients/${client.id}`}>
-                      View
+                      {t("common.view")}
                     </Link>
                     <button
                       className="action-link"
                       type="button"
                       onClick={() => handleEdit(client)}
                     >
-                      Edit
+                      {t("common.edit")}
                     </button>
                     <button
                       className="action-link"
                       type="button"
                       onClick={() => handleBlockToggle(client)}
                     >
-                      {client.status === "active" ? "Block" : "Unblock"}
+                      {client.status === "active"
+                        ? t("clients.actions.block")
+                        : t("clients.actions.unblock")}
                     </button>
                   </div>
                 </td>
@@ -204,10 +214,10 @@ export default function ClientListClient() {
           disabled={page <= 1}
           onClick={() => setPage(Math.max(1, page - 1))}
         >
-          РќР°Р·Р°Рґ
+          {t("common.back")}
         </button>
         <div className="helper-text">
-          РЎС‚СЂР°РЅРёС†Р° {page} РёР· {totalPages}
+          {t("common.page", { page, total: totalPages })}
         </div>
         <button
           className="button"
@@ -215,7 +225,7 @@ export default function ClientListClient() {
           disabled={page >= totalPages}
           onClick={() => setPage(Math.min(totalPages, page + 1))}
         >
-          Р’РїРµСЂРµРґ
+          {t("common.next")}
         </button>
       </div>
     </section>

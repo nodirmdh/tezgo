@@ -1,8 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { apiJson } from "../../../lib/api/client";
+import { useLocale } from "../../components/LocaleProvider";
 
 export default function PromoOverview({ promo, onUpdate }) {
+  const { t } = useLocale();
+  const initialOutletIds = useMemo(() => {
+    if (Array.isArray(promo.outlet_ids)) {
+      return promo.outlet_ids;
+    }
+    if (promo.outlet_id) {
+      return [promo.outlet_id];
+    }
+    return [];
+  }, [promo.outlet_id, promo.outlet_ids]);
+  const [outlets, setOutlets] = useState([]);
   const [form, setForm] = useState({
     code: promo.code || "",
     description: promo.description || "",
@@ -13,9 +26,31 @@ export default function PromoOverview({ promo, onUpdate }) {
     starts_at: promo.starts_at || "",
     ends_at: promo.ends_at || "",
     min_order_amount: promo.min_order_amount ?? "",
-    outlet_id: promo.outlet_id ?? "",
+    outlet_ids: initialOutletIds,
+    apply_all_outlets: initialOutletIds.length === 0,
     first_order_only: promo.first_order_only ?? 0
   });
+
+  useEffect(() => {
+    const loadOutlets = async () => {
+      const result = await apiJson("/api/outlets/list?limit=200&page=1");
+      if (!result.ok) {
+        return;
+      }
+      setOutlets(result.data.items || []);
+    };
+    loadOutlets();
+  }, []);
+
+  const toggleOutlet = (outletId) => {
+    setForm((current) => {
+      const exists = current.outlet_ids.includes(outletId);
+      const nextIds = exists
+        ? current.outlet_ids.filter((id) => id !== outletId)
+        : [...current.outlet_ids, outletId];
+      return { ...current, outlet_ids: nextIds };
+    });
+  };
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -29,7 +64,7 @@ export default function PromoOverview({ promo, onUpdate }) {
       starts_at: form.starts_at || null,
       ends_at: form.ends_at || null,
       min_order_amount: form.min_order_amount !== "" ? Number(form.min_order_amount) : null,
-      outlet_id: form.outlet_id !== "" ? Number(form.outlet_id) : null,
+      outlet_ids: form.apply_all_outlets ? [] : form.outlet_ids,
       first_order_only: Number(form.first_order_only)
     };
     onUpdate(payload);
@@ -37,11 +72,11 @@ export default function PromoOverview({ promo, onUpdate }) {
 
   return (
     <section className="card profile-card">
-      <div className="profile-title">Overview</div>
+      <div className="profile-title">{t("tabs.overview")}</div>
       <form className="form-grid" onSubmit={handleSubmit}>
         <div className="form-row two">
           <div className="auth-field">
-            <label htmlFor="promoCode">Code</label>
+            <label htmlFor="promoCode">{t("promos.form.code")}</label>
             <input
               id="promoCode"
               className="input"
@@ -50,7 +85,7 @@ export default function PromoOverview({ promo, onUpdate }) {
             />
           </div>
           <div className="auth-field">
-            <label htmlFor="promoDesc">Description</label>
+            <label htmlFor="promoDesc">{t("promos.form.description")}</label>
             <input
               id="promoDesc"
               className="input"
@@ -63,7 +98,7 @@ export default function PromoOverview({ promo, onUpdate }) {
         </div>
         <div className="form-row two">
           <div className="auth-field">
-            <label htmlFor="promoDiscount">Discount %</label>
+            <label htmlFor="promoDiscount">{t("promos.form.discount")}</label>
             <input
               id="promoDiscount"
               className="input"
@@ -74,7 +109,7 @@ export default function PromoOverview({ promo, onUpdate }) {
             />
           </div>
           <div className="auth-field">
-            <label htmlFor="promoMax">Max uses</label>
+            <label htmlFor="promoMax">{t("promos.form.maxUses")}</label>
             <input
               id="promoMax"
               className="input"
@@ -85,7 +120,7 @@ export default function PromoOverview({ promo, onUpdate }) {
         </div>
         <div className="form-row two">
           <div className="auth-field">
-            <label htmlFor="promoUsed">Used count</label>
+            <label htmlFor="promoUsed">{t("promos.form.usedCount")}</label>
             <input
               id="promoUsed"
               className="input"
@@ -94,21 +129,21 @@ export default function PromoOverview({ promo, onUpdate }) {
             />
           </div>
           <div className="auth-field">
-            <label htmlFor="promoActive">Active</label>
+            <label htmlFor="promoActive">{t("promos.form.active")}</label>
             <select
               id="promoActive"
               className="select"
               value={form.is_active}
               onChange={(event) => setForm({ ...form, is_active: event.target.value })}
             >
-              <option value={1}>active</option>
-              <option value={0}>inactive</option>
+              <option value={1}>{t("promos.status.active")}</option>
+              <option value={0}>{t("promos.status.inactive")}</option>
             </select>
           </div>
         </div>
         <div className="form-row two">
           <div className="auth-field">
-            <label htmlFor="promoStart">Starts at</label>
+            <label htmlFor="promoStart">{t("promos.form.startsAt")}</label>
             <input
               id="promoStart"
               className="input"
@@ -118,7 +153,7 @@ export default function PromoOverview({ promo, onUpdate }) {
             />
           </div>
           <div className="auth-field">
-            <label htmlFor="promoEnd">Ends at</label>
+            <label htmlFor="promoEnd">{t("promos.form.endsAt")}</label>
             <input
               id="promoEnd"
               className="input"
@@ -130,7 +165,7 @@ export default function PromoOverview({ promo, onUpdate }) {
         </div>
         <div className="form-row two">
           <div className="auth-field">
-            <label htmlFor="promoMin">Min order amount</label>
+            <label htmlFor="promoMin">{t("promos.form.minOrderAmount")}</label>
             <input
               id="promoMin"
               className="input"
@@ -141,18 +176,26 @@ export default function PromoOverview({ promo, onUpdate }) {
             />
           </div>
           <div className="auth-field">
-            <label htmlFor="promoOutlet">Outlet ID</label>
-            <input
-              id="promoOutlet"
-              className="input"
-              value={form.outlet_id}
-              onChange={(event) => setForm({ ...form, outlet_id: event.target.value })}
-            />
+            <label className="checkbox" htmlFor="promoAllOutlets">
+              <input
+                id="promoAllOutlets"
+                type="checkbox"
+                checked={form.apply_all_outlets}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    apply_all_outlets: event.target.checked,
+                    outlet_ids: event.target.checked ? [] : form.outlet_ids
+                  })
+                }
+              />
+              {t("promos.form.allOutlets")}
+            </label>
           </div>
         </div>
         <div className="form-row">
           <div className="auth-field">
-            <label htmlFor="promoFirst">First order only</label>
+            <label htmlFor="promoFirst">{t("promos.form.firstOrderOnly")}</label>
             <select
               id="promoFirst"
               className="select"
@@ -161,13 +204,30 @@ export default function PromoOverview({ promo, onUpdate }) {
                 setForm({ ...form, first_order_only: event.target.value })
               }
             >
-              <option value={0}>no</option>
-              <option value={1}>yes</option>
+              <option value={0}>{t("common.no")}</option>
+              <option value={1}>{t("common.yes")}</option>
             </select>
           </div>
         </div>
+        {!form.apply_all_outlets ? (
+          <div className="auth-field">
+            <label>{t("promos.form.outlets")}</label>
+            <div className="tag-list">
+              {outlets.map((outlet) => (
+                <label key={outlet.id} className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.outlet_ids.includes(outlet.id)}
+                    onChange={() => toggleOutlet(outlet.id)}
+                  />
+                  {outlet.name}
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <button className="button" type="submit">
-          Save
+          {t("common.save")}
         </button>
       </form>
     </section>

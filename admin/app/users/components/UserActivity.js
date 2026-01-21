@@ -1,16 +1,19 @@
-﻿"use client";
+"use client";
+
+import { useLocale } from "../../components/LocaleProvider";
 
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : "-");
 
 export default function UserActivity({ data, loading, error }) {
+  const { t } = useLocale();
   return (
     <section className="card profile-card">
-      <div className="profile-title">Activity / Logs</div>
-      {error ? <div className="banner error">{error}</div> : null}
+      <div className="profile-title">{t("users.activity.title")}</div>
+      {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (
         <div className="skeleton-block" />
       ) : data.length === 0 ? (
-        <div className="empty-state">No data yet</div>
+        <div className="empty-state">{t("dashboard.noData")}</div>
       ) : (
         <ul className="log-list">
           {data.map((item) => (

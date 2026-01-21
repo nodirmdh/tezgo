@@ -3,19 +3,21 @@
 import { useEffect, useMemo, useState } from "react";
 import Toast from "../components/Toast";
 import { apiJson } from "../../lib/api/client";
+import { useLocale } from "../components/LocaleProvider";
 
 const entityOptions = [
-  { value: "", label: "All entities" },
-  { value: "user", label: "user" },
-  { value: "client", label: "client" },
-  { value: "courier", label: "courier" },
-  { value: "partner", label: "partner" },
-  { value: "outlet", label: "outlet" },
-  { value: "order", label: "order" },
-  { value: "promo", label: "promo" }
+  { value: "", labelKey: "audit.entities.all" },
+  { value: "user", labelKey: "audit.entities.user" },
+  { value: "client", labelKey: "audit.entities.client" },
+  { value: "courier", labelKey: "audit.entities.courier" },
+  { value: "partner", labelKey: "audit.entities.partner" },
+  { value: "outlet", labelKey: "audit.entities.outlet" },
+  { value: "order", labelKey: "audit.entities.order" },
+  { value: "promo", labelKey: "audit.entities.promo" }
 ];
 
 export default function AuditListClient() {
+  const { t } = useLocale();
   const [filters, setFilters] = useState({
     entity_type: "",
     actor_id: "",
@@ -78,13 +80,13 @@ export default function AuditListClient() {
           >
             {entityOptions.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {t(option.labelKey)}
               </option>
             ))}
           </select>
           <input
             className="input"
-            placeholder="Actor user ID"
+            placeholder={t("audit.filters.actorId")}
             value={filters.actor_id}
             onChange={(event) =>
               setFilters({ ...filters, actor_id: event.target.value, page: 1 })
@@ -109,7 +111,7 @@ export default function AuditListClient() {
         </div>
       </div>
 
-      {error ? <div className="banner error">{error}</div> : null}
+      {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (
         <div className="form-grid">
           {[...Array(6)].map((_, index) => (
@@ -117,17 +119,17 @@ export default function AuditListClient() {
           ))}
         </div>
       ) : data.items.length === 0 ? (
-        <div className="empty-state">No data yet</div>
+        <div className="empty-state">{t("dashboard.noData")}</div>
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>Entity</th>
-              <th>Entity ID</th>
-              <th>Action</th>
-              <th>Actor</th>
-              <th>Timestamp</th>
-              <th>Diff</th>
+              <th>{t("audit.table.entity")}</th>
+              <th>{t("audit.table.entityId")}</th>
+              <th>{t("audit.table.action")}</th>
+              <th>{t("audit.table.actor")}</th>
+              <th>{t("audit.table.timestamp")}</th>
+              <th>{t("audit.table.diff")}</th>
             </tr>
           </thead>
           <tbody>
@@ -140,7 +142,7 @@ export default function AuditListClient() {
                 <td>{row.created_at}</td>
                 <td>
                   <details>
-                    <summary>View</summary>
+                    <summary>{t("common.view")}</summary>
                     <pre className="code-block">
                       {JSON.stringify(
                         {
@@ -167,10 +169,10 @@ export default function AuditListClient() {
             setFilters({ ...filters, page: Math.max(1, filters.page - 1) })
           }
         >
-          Back
+          {t("common.back")}
         </button>
         <div className="helper-text">
-          Page {filters.page} of {totalPages}
+          {t("common.page", { page: filters.page, total: totalPages })}
         </div>
         <button
           className="button"
@@ -183,7 +185,7 @@ export default function AuditListClient() {
             })
           }
         >
-          Next
+          {t("common.next")}
         </button>
       </div>
     </section>

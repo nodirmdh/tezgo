@@ -5,20 +5,11 @@ import Link from "next/link";
 import Toast from "../../components/Toast";
 import useConfirm from "../../components/useConfirm";
 import { apiJson } from "../../../lib/api/client";
-
-const statusOptions = [
-  { value: "", label: "All statuses" },
-  { value: "online", label: "online" },
-  { value: "offline", label: "offline" }
-];
-
-const blockedOptions = [
-  { value: "", label: "All" },
-  { value: "true", label: "blocked" },
-  { value: "false", label: "active" }
-];
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 export default function CourierListClient() {
+  const { locale, t } = useLocale();
   const [filters, setFilters] = useState({
     status: "",
     blocked: "",
@@ -65,25 +56,26 @@ export default function CourierListClient() {
     confirm({
       title:
         nextStatus === "blocked"
-          ? "Block courier?"
-          : "Unblock courier?",
-      description: "Status will be updated immediately after confirmation.",
+          ? t("couriers.actions.blockConfirm")
+          : t("couriers.actions.unblockConfirm"),
+      description: t("couriers.actions.confirmDescription"),
       onConfirm: async () => {
         const result = await apiJson(`/api/couriers/${courier.id}/status`, {
           method: "PATCH",
           body: JSON.stringify({ status: nextStatus })
         });
         if (!result.ok) {
-          setToast({ type: "error", message: result.error });
+          setToast({ type: "error", message: t(result.error) });
           return;
         }
-        setToast({ type: "success", message: "Status updated" });
+        setToast({ type: "success", message: t("couriers.toasts.statusUpdated") });
         fetchCouriers();
       }
     });
   };
 
-  const formatName = (item) => item.username || item.tg_id || `Courier #${item.id}`;
+  const formatName = (item) =>
+    item.username || item.tg_id || `${t("couriers.profile.title")} #${item.id}`;
   const formatRating = (item) =>
     item.rating_avg ? `${Number(item.rating_avg).toFixed(1)} (${item.rating_count || 0})` : "-";
 
@@ -104,11 +96,9 @@ export default function CourierListClient() {
               setFilters({ ...filters, status: event.target.value, page: 1 })
             }
           >
-            {statusOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
+            <option value="">{t("couriers.filters.allStatuses")}</option>
+            <option value="online">{t("couriers.status.online")}</option>
+            <option value="offline">{t("couriers.status.offline")}</option>
           </select>
           <select
             className="select"
@@ -117,16 +107,14 @@ export default function CourierListClient() {
               setFilters({ ...filters, blocked: event.target.value, page: 1 })
             }
           >
-            {blockedOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
+            <option value="">{t("couriers.filters.allBlocked")}</option>
+            <option value="true">{translateStatus(locale, "blocked")}</option>
+            <option value="false">{translateStatus(locale, "active")}</option>
           </select>
         </div>
       </div>
 
-      {error ? <div className="banner error">{error}</div> : null}
+      {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (
         <div className="form-grid">
           {[...Array(6)].map((_, index) => (
@@ -137,13 +125,13 @@ export default function CourierListClient() {
         <table className="table">
           <thead>
             <tr>
-              <th>Courier</th>
-              <th>Phone</th>
-              <th>Status</th>
-              <th>Rating</th>
-              <th>Orders today</th>
-              <th>Blocked</th>
-              <th>Actions</th>
+              <th>{t("couriers.table.courier")}</th>
+              <th>{t("couriers.table.phone")}</th>
+              <th>{t("couriers.table.status")}</th>
+              <th>{t("couriers.table.rating")}</th>
+              <th>{t("couriers.table.ordersToday")}</th>
+              <th>{t("couriers.table.blocked")}</th>
+              <th>{t("common.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -153,27 +141,29 @@ export default function CourierListClient() {
                 <td>{courier.phone || "-"}</td>
                 <td>
                   <span className="badge">
-                    {courier.is_active ? "online" : "offline"}
+                    {courier.is_active ? t("couriers.status.online") : t("couriers.status.offline")}
                   </span>
                 </td>
                 <td>{formatRating(courier)}</td>
                 <td>{courier.orders_today}</td>
                 <td>
                   <span className="badge">
-                    {courier.user_status || "active"}
+                    {translateStatus(locale, courier.user_status || "active")}
                   </span>
                 </td>
                 <td>
                   <div className="table-actions">
                     <Link className="action-link" href={`/couriers/${courier.id}`}>
-                      View
+                      {t("common.view")}
                     </Link>
                     <button
                       className="action-link"
                       type="button"
                       onClick={() => handleBlockToggle(courier)}
                     >
-                      {courier.user_status === "blocked" ? "Unblock" : "Block"}
+                      {courier.user_status === "blocked"
+                        ? t("couriers.actions.unblock")
+                        : t("couriers.actions.block")}
                     </button>
                   </div>
                 </td>
@@ -191,10 +181,10 @@ export default function CourierListClient() {
             setFilters({ ...filters, page: Math.max(1, filters.page - 1) })
           }
         >
-          Back
+          {t("common.back")}
         </button>
         <div className="helper-text">
-          Page {filters.page} of {totalPages}
+          {t("common.page", { page: filters.page, total: totalPages })}
         </div>
         <button
           className="button"
@@ -207,7 +197,7 @@ export default function CourierListClient() {
             })
           }
         >
-          Next
+          {t("common.next")}
         </button>
       </div>
     </section>

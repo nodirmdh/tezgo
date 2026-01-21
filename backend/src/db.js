@@ -87,10 +87,10 @@ const ensureTestData = (db) => {
     "INSERT INTO clients (user_id, phone, full_name) VALUES (?, ?, ?)"
   );
   const insertPartner = db.prepare(
-    "INSERT INTO partners (name, manager) VALUES (?, ?)"
+    "INSERT INTO partners (name, manager, status, contact_name, phone_primary, phone_secondary, phone_tertiary, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
   );
   const insertOutlet = db.prepare(
-    "INSERT INTO outlets (partner_id, type, name, address, is_active) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO outlets (partner_id, type, name, address, is_active, status, hours, delivery_zone, phone, email, address_comment, status_reason, status_updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
 
   const partnerIds = db.prepare("SELECT id FROM partners").all().map((row) => row.id);
@@ -98,7 +98,16 @@ const ensureTestData = (db) => {
   for (let i = 0; i < needPartners; i += 1) {
     const idx = partnerIds.length + i + 1;
     const partnerId = insertPartner
-      .run(`Test Partner ${idx}`, `@partner_${idx}`)
+      .run(
+        `Test Partner ${idx}`,
+        `@partner_${idx}`,
+        "active",
+        `Manager ${idx}`,
+        `+998 90 ${String(idx).padStart(3, "0")} 10 10`,
+        `+998 90 ${String(idx).padStart(3, "0")} 20 20`,
+        `+998 90 ${String(idx).padStart(3, "0")} 30 30`,
+        `partner${idx}@example.com`
+      )
       .lastInsertRowid;
     partnerIds.push(partnerId);
   }
@@ -115,7 +124,15 @@ const ensureTestData = (db) => {
       "restaurant",
       `Test Restaurant ${idx}`,
       `Restaurant st, ${10 + idx}`,
-      1
+      1,
+      "open",
+      "09:00-23:00",
+      "3 km",
+      `+998 90 ${String(idx).padStart(3, "0")} 55 55`,
+      `restaurant${idx}@example.com`,
+      "Side entrance",
+      null,
+      nowIso()
     );
   }
 
@@ -127,7 +144,15 @@ const ensureTestData = (db) => {
       "shop",
       `Test Shop ${idx}`,
       `Market ave, ${30 + idx}`,
-      1
+      1,
+      "open",
+      "09:00-22:00",
+      "2 km",
+      `+998 90 ${String(idx).padStart(3, "0")} 66 66`,
+      `shop${idx}@example.com`,
+      "Main entrance",
+      null,
+      nowIso()
     );
   }
 
@@ -170,6 +195,48 @@ const ensureTestData = (db) => {
     .prepare("SELECT user_id FROM clients ORDER BY user_id ASC")
     .all()
     .map((row) => row.user_id);
+  const itemCount = db.prepare("SELECT COUNT(*) as count FROM items").get();
+  if (itemCount.count === 0 && outletIds.length) {
+    const insertItem = db.prepare(
+      `INSERT INTO items
+        (title, sku, category, description, photo_url, weight_grams, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+    );
+    const insertOutletItem = db.prepare(
+      `INSERT INTO outlet_items
+        (outlet_id, item_id, base_price, is_available, stock, unavailable_reason, unavailable_until, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    );
+    const burgerItem = insertItem.run(
+      "Classic Burger",
+      "BRG-001",
+      "Burgers",
+      "Beef patty, cheese, lettuce.",
+      "https://picsum.photos/seed/burger/200/140",
+      320
+    ).lastInsertRowid;
+    const friesItem = insertItem.run(
+      "French Fries",
+      "SID-101",
+      "Sides",
+      "Crispy salted fries.",
+      "https://picsum.photos/seed/fries/200/140",
+      150
+    ).lastInsertRowid;
+    const saladItem = insertItem.run(
+      "Fresh Salad",
+      "SAL-204",
+      "Salads",
+      "Greens with olive oil.",
+      "https://picsum.photos/seed/salad/200/140",
+      220
+    ).lastInsertRowid;
+    outletIds.forEach((outletId) => {
+      insertOutletItem.run(outletId, burgerItem, 45000, 1, 20, null, null);
+      insertOutletItem.run(outletId, friesItem, 18000, 1, 50, null, null);
+      insertOutletItem.run(outletId, saladItem, 24000, 1, 15, null, null);
+    });
+  }
   const orderCount = db.prepare("SELECT COUNT(*) as count FROM orders").get().count;
   const ordersToCreate = Math.max(0, desiredOrders - orderCount);
 
@@ -181,6 +248,48 @@ const ensureTestData = (db) => {
     const insertEvent = db.prepare(
       "INSERT INTO order_events (order_id, type, payload, actor_id, created_at) VALUES (?, ?, ?, ?, ?)"
     );
+    const insertOrderItem = db.prepare(
+      `INSERT INTO order_items
+        (order_id, title, description, photo_url, sku, weight_grams, unit_price, quantity, total_price)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const updateOrderDetails = db.prepare(
+      `UPDATE orders
+       SET subtotal_food = ?,
+           courier_fee = ?,
+           service_fee = ?,
+           restaurant_commission = ?,
+           restaurant_penalty = ?,
+           discount_amount = ?,
+           promo_code = ?,
+           total_amount = ?,
+           delivery_address_comment = ?,
+           address_entrance = ?,
+           address_floor = ?,
+           address_apartment = ?,
+           comment_to_restaurant = ?,
+           comment_to_address = ?,
+           crm_comment = ?,
+           receiver_name = ?,
+           receiver_phone = ?,
+           orderer_phone = ?,
+           utensils_count = ?,
+           is_for_other = ?,
+           promised_delivery_at = ?,
+           sent_to_restaurant_at = ?
+       WHERE id = ?`
+    );
+    const outletItemsStmt = db.prepare(
+      `SELECT items.title,
+              items.sku,
+              items.category,
+              outlet_items.base_price
+       FROM outlet_items
+       JOIN items ON items.id = outlet_items.item_id
+       WHERE outlet_items.outlet_id = ?
+       ORDER BY items.id ASC`
+    );
+    const clientPhoneStmt = db.prepare("SELECT phone FROM clients WHERE user_id = ?");
     const adminId =
       db.prepare("SELECT id FROM users WHERE role = 'admin'").get()?.id ?? null;
     const supportId =
@@ -257,6 +366,73 @@ const ensureTestData = (db) => {
       );
 
       const orderId = result.lastInsertRowid;
+      const availableItems = outletItemsStmt.all(outletId);
+      const selectedItems = availableItems.length
+        ? availableItems.slice(0, Math.min(3, availableItems.length))
+        : [
+            { title: "Sample Item", sku: "SKU-001", category: "General", base_price: 15000 }
+          ];
+      let subtotalFood = 0;
+      selectedItems.forEach((item) => {
+        const quantity = randomBetween(1, 3);
+        const unitPrice = item.base_price || randomBetween(15000, 45000);
+        const totalPrice = unitPrice * quantity;
+        subtotalFood += totalPrice;
+        insertOrderItem.run(
+          orderId,
+          item.title,
+          `Category: ${item.category || "General"}`,
+          null,
+          item.sku,
+          randomBetween(200, 700),
+          unitPrice,
+          quantity,
+          totalPrice
+        );
+      });
+      const deliveryFee = randomBetween(5000, 12000);
+      const serviceFee = randomBetween(1500, 3500);
+      const commission = Math.round(subtotalFood * 0.1);
+      const penalty = i % 6 === 0 ? randomBetween(1000, 3000) : 0;
+      const discount = i % 4 === 0 ? randomBetween(2000, 8000) : 0;
+      const promoCode = discount ? "WELCOME10" : null;
+      const totalAmount = Math.max(
+        0,
+        subtotalFood + deliveryFee + serviceFee - discount
+      );
+      const clientPhone = clientPhoneStmt.get(clientId)?.phone || null;
+      const isForOther = i % 3 === 0 ? 1 : 0;
+      const receiverName = isForOther ? `Receiver ${clientId}` : null;
+      const receiverPhone = isForOther
+        ? `+998 90 ${String(clientId).padStart(3, "0")} 11 11`
+        : null;
+      const promisedAt = addMinutes(createdAt, randomBetween(40, 90));
+      const sentToRestaurantAt = addMinutes(createdAt, randomBetween(1, 4));
+      updateOrderDetails.run(
+        subtotalFood,
+        deliveryFee,
+        serviceFee,
+        commission,
+        penalty,
+        discount,
+        promoCode,
+        totalAmount,
+        "Near the main entrance",
+        String(randomBetween(1, 6)),
+        String(randomBetween(1, 9)),
+        String(randomBetween(10, 50)),
+        "No onions, please",
+        "Call on arrival",
+        "Handled by support",
+        receiverName,
+        receiverPhone,
+        clientPhone,
+        randomBetween(1, 4),
+        isForOther,
+        promisedAt,
+        sentToRestaurantAt,
+        orderId
+      );
       insertEvent.run(
         orderId,
         "created",
@@ -305,49 +481,125 @@ const seedIfEmpty = (db) => {
     const support = insertUser.run("TG-500", "@support", "active", "support").lastInsertRowid;
 
     const insertPartner = db.prepare(
-      "INSERT INTO partners (name, manager) VALUES (?, ?)"
+      "INSERT INTO partners (name, manager, status, contact_name, phone_primary, phone_secondary, phone_tertiary, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     );
-    const kungrad = insertPartner.run("Kungrad Foods", "@kungrad_admin").lastInsertRowid;
-    const fresh = insertPartner.run("Fresh Market", "@fresh_ops").lastInsertRowid;
+    const kungrad = insertPartner
+      .run(
+        "Kungrad Foods",
+        "@kungrad_admin",
+        "active",
+        "Akmal Kurbanov",
+        "+998 90 111 22 33",
+        "+998 90 111 22 44",
+        "+998 90 111 22 55",
+        "kungrad@example.com"
+      )
+      .lastInsertRowid;
+    const fresh = insertPartner
+      .run(
+        "Fresh Market",
+        "@fresh_ops",
+        "active",
+        "Dilnoza Karimova",
+        "+998 90 222 33 44",
+        "+998 90 222 33 55",
+        "+998 90 222 33 66",
+        "fresh@example.com"
+      )
+      .lastInsertRowid;
 
     const insertOutlet = db.prepare(
-      "INSERT INTO outlets (partner_id, type, name, address, is_active) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO outlets (partner_id, type, name, address, is_active, status, hours, delivery_zone, phone, email, address_comment, status_reason, status_updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
-    const burger = insertOutlet.run(
-      kungrad,
-      "restaurant",
-      "Burger Way",
-      "Main st, 12",
-      1
-    ).lastInsertRowid;
+    const burger = insertOutlet
+      .run(
+        kungrad,
+        "restaurant",
+        "Burger Way",
+        "Main st, 12",
+        1,
+        "open",
+        "09:00-23:00",
+        "3 km",
+        "+998 90 555 66 77",
+        "burger@example.com",
+        "Near main entrance",
+        null,
+        nowIso()
+      )
+      .lastInsertRowid;
     insertOutlet.run(
       fresh,
       "shop",
       "Green Market",
       "Central ave, 88",
-      1
+      1,
+      "open",
+      "08:00-22:00",
+      "5 km",
+      "+998 90 333 44 55",
+      "green@example.com",
+      "Back door",
+      null,
+      nowIso()
     );
 
     const itemCount = db.prepare("SELECT COUNT(*) as count FROM items").get();
     if (itemCount.count === 0) {
       const insertItem = db.prepare(
-        "INSERT INTO items (title, sku, category, updated_at) VALUES (?, ?, ?, datetime('now'))"
+        `INSERT INTO items
+          (title, sku, category, description, photo_url, weight_grams, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
       );
-      const burgerItem = insertItem.run("Classic Burger", "BRG-001", "Burgers").lastInsertRowid;
-      const friesItem = insertItem.run("French Fries", "SID-101", "Sides").lastInsertRowid;
-      const saladItem = insertItem.run("Fresh Salad", "SAL-204", "Salads").lastInsertRowid;
+      const burgerItem = insertItem.run(
+        "Classic Burger",
+        "BRG-001",
+        "Burgers",
+        "Beef patty, cheese, lettuce.",
+        "https://picsum.photos/seed/burger/200/140",
+        320
+      ).lastInsertRowid;
+      const friesItem = insertItem.run(
+        "French Fries",
+        "SID-101",
+        "Sides",
+        "Crispy salted fries.",
+        "https://picsum.photos/seed/fries/200/140",
+        150
+      ).lastInsertRowid;
+      const saladItem = insertItem.run(
+        "Fresh Salad",
+        "SAL-204",
+        "Salads",
+        "Greens with olive oil.",
+        "https://picsum.photos/seed/salad/200/140",
+        220
+      ).lastInsertRowid;
 
       const insertOutletItem = db.prepare(
-        "INSERT INTO outlet_items (outlet_id, item_id, base_price, is_available, stock, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))"
+        `INSERT INTO outlet_items
+          (outlet_id, item_id, base_price, is_available, stock, unavailable_reason, unavailable_until, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
       );
-      insertOutletItem.run(burger, burgerItem, 45000, 1, 20);
-      insertOutletItem.run(burger, friesItem, 18000, 1, 50);
-      insertOutletItem.run(burger, saladItem, 24000, 1, 15);
+      insertOutletItem.run(burger, burgerItem, 45000, 1, 20, null, null);
+      insertOutletItem.run(burger, friesItem, 18000, 1, 50, null, null);
+      insertOutletItem.run(burger, saladItem, 24000, 1, 15, null, null);
     }
 
     db.prepare(
-      "INSERT INTO couriers (user_id, is_active, rating_avg, rating_count) VALUES (?, ?, ?, ?)"
-    ).run(jamshid, 1, 4.8, 21);
+      `INSERT INTO couriers
+        (user_id, is_active, rating_avg, rating_count, phone, full_name, address, delivery_methods)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      jamshid,
+      1,
+      4.8,
+      21,
+      "+998 90 777 55 44",
+      "Jamshid Karimov",
+      "Tashkent, Chilonzor 12",
+      "walk,bike,car"
+    );
 
     const orderId = db.prepare(
       `INSERT INTO orders (order_number, client_user_id, outlet_id, courier_user_id, status, total_amount, delivery_address, created_at, accepted_at)
@@ -361,6 +613,85 @@ const seedIfEmpty = (db) => {
       56000,
       "Main st, 21"
     ).lastInsertRowid;
+
+    const insertOrderItem = db.prepare(
+      `INSERT INTO order_items
+        (order_id, title, description, photo_url, sku, weight_grams, unit_price, quantity, total_price)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const updateOrderDetails = db.prepare(
+      `UPDATE orders
+       SET subtotal_food = ?,
+           courier_fee = ?,
+           service_fee = ?,
+           restaurant_commission = ?,
+           restaurant_penalty = ?,
+           discount_amount = ?,
+           promo_code = ?,
+           total_amount = ?,
+           delivery_address_comment = ?,
+           address_entrance = ?,
+           address_floor = ?,
+           address_apartment = ?,
+           comment_to_restaurant = ?,
+           comment_to_address = ?,
+           crm_comment = ?,
+           receiver_name = ?,
+           receiver_phone = ?,
+           orderer_phone = ?,
+           utensils_count = ?,
+           is_for_other = ?,
+           promised_delivery_at = ?,
+           sent_to_restaurant_at = ?
+       WHERE id = ?`
+    );
+    insertOrderItem.run(
+      orderId,
+      "Classic Burger",
+      "Category: Burgers",
+      null,
+      "BRG-001",
+      450,
+      45000,
+      1,
+      45000
+    );
+    insertOrderItem.run(
+      orderId,
+      "French Fries",
+      "Category: Sides",
+      null,
+      "SID-101",
+      200,
+      18000,
+      1,
+      18000
+    );
+    updateOrderDetails.run(
+      63000,
+      7000,
+      2000,
+      6300,
+      1000,
+      5000,
+      "WELCOME10",
+      67000,
+      "Leave at the door",
+      "2",
+      "3",
+      "12",
+      "Less salt",
+      "Please call",
+      "VIP client",
+      "Receiver 1",
+      "+998 90 111 11 11",
+      "+998 90 000 00 00",
+      2,
+      1,
+      nowIso(),
+      nowIso(),
+      orderId
+    );
 
     const insertOrderEvent = db.prepare(
       "INSERT INTO order_events (order_id, type, payload, actor_id) VALUES (?, ?, ?, ?)"
@@ -381,6 +712,9 @@ const seedIfEmpty = (db) => {
     const insertLedger = db.prepare(
       "INSERT INTO finance_ledger (title, amount, status, type, user_id, order_id, balance_delta, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     );
+    const insertPartnerLedger = db.prepare(
+      "INSERT INTO finance_ledger (title, amount, status, type, partner_id, order_id, balance_delta, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    );
     insertLedger.run(
       "Courier payout #208",
       120000,
@@ -390,6 +724,16 @@ const seedIfEmpty = (db) => {
       1,
       120000,
       "payout"
+    );
+    insertPartnerLedger.run(
+      "Partner payout #1041",
+      60000,
+      "completed",
+      "payment",
+      kungrad,
+      orderId,
+      60000,
+      "partner"
     );
     insertLedger.run(
       "Commission #41",

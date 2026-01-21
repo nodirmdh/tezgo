@@ -354,20 +354,28 @@ const createUserAuditStmt = db.prepare(
 );
 
 const createPartnerStmt = db.prepare(
-  "INSERT INTO partners (name, manager, status) VALUES (@name, @manager, @status)"
+  `INSERT INTO partners
+   (name, manager, status, contact_name, phone_primary, phone_secondary, phone_tertiary, email)
+   VALUES (@name, @manager, @status, @contact_name, @phone_primary, @phone_secondary, @phone_tertiary, @email)`
 );
 const updatePartnerStmt = db.prepare(
   `UPDATE partners
    SET name = COALESCE(@name, name),
        manager = COALESCE(@manager, manager),
-       status = COALESCE(@status, status)
+       status = COALESCE(@status, status),
+       contact_name = COALESCE(@contact_name, contact_name),
+       phone_primary = COALESCE(@phone_primary, phone_primary),
+       phone_secondary = COALESCE(@phone_secondary, phone_secondary),
+       phone_tertiary = COALESCE(@phone_tertiary, phone_tertiary),
+       email = COALESCE(@email, email)
    WHERE id = @id`
 );
 const deletePartnerStmt = db.prepare("DELETE FROM partners WHERE id = ?");
 
 const createOutletStmt = db.prepare(
-  `INSERT INTO outlets (partner_id, type, name, address, is_active, status, hours, delivery_zone)
-   VALUES (@partner_id, @type, @name, @address, @is_active, @status, @hours, @delivery_zone)`
+  `INSERT INTO outlets
+   (partner_id, type, name, address, is_active, status, hours, delivery_zone, phone, email, address_comment, status_reason, status_updated_at)
+   VALUES (@partner_id, @type, @name, @address, @is_active, @status, @hours, @delivery_zone, @phone, @email, @address_comment, @status_reason, @status_updated_at)`
 );
 const updateOutletStmt = db.prepare(
   `UPDATE outlets
@@ -378,20 +386,30 @@ const updateOutletStmt = db.prepare(
        is_active = COALESCE(@is_active, is_active),
        status = COALESCE(@status, status),
        hours = COALESCE(@hours, hours),
-       delivery_zone = COALESCE(@delivery_zone, delivery_zone)
+       delivery_zone = COALESCE(@delivery_zone, delivery_zone),
+       phone = COALESCE(@phone, phone),
+       email = COALESCE(@email, email),
+       address_comment = COALESCE(@address_comment, address_comment),
+       status_reason = COALESCE(@status_reason, status_reason),
+       status_updated_at = COALESCE(@status_updated_at, status_updated_at)
    WHERE id = @id`
 );
 const deleteOutletStmt = db.prepare("DELETE FROM outlets WHERE id = ?");
 
 const createCourierStmt = db.prepare(
-  "INSERT INTO couriers (user_id, is_active, rating_avg, rating_count, phone) VALUES (@user_id, @is_active, @rating_avg, @rating_count, @phone)"
+  `INSERT INTO couriers
+   (user_id, is_active, rating_avg, rating_count, phone, full_name, address, delivery_methods)
+   VALUES (@user_id, @is_active, @rating_avg, @rating_count, @phone, @full_name, @address, @delivery_methods)`
 );
 const updateCourierStmt = db.prepare(
   `UPDATE couriers
    SET is_active = COALESCE(@is_active, is_active),
        rating_avg = COALESCE(@rating_avg, rating_avg),
        rating_count = COALESCE(@rating_count, rating_count),
-       phone = COALESCE(@phone, phone)
+       phone = COALESCE(@phone, phone),
+       full_name = COALESCE(@full_name, full_name),
+       address = COALESCE(@address, address),
+       delivery_methods = COALESCE(@delivery_methods, delivery_methods)
    WHERE user_id = @user_id`
 );
 const deleteCourierStmt = db.prepare("DELETE FROM couriers WHERE user_id = ?");
@@ -409,11 +427,59 @@ const createOrderStmt = db.prepare(
 );
 const updateOrderStmt = db.prepare(
   `UPDATE orders
-   SET status = COALESCE(@status, status),
-       courier_user_id = COALESCE(@courier_user_id, courier_user_id),
-       prep_eta_minutes = COALESCE(@prep_eta_minutes, prep_eta_minutes),
-       total_amount = COALESCE(@total_amount, total_amount),
-       delivery_address = COALESCE(@delivery_address, delivery_address)
+     SET status = COALESCE(@status, status),
+         courier_user_id = COALESCE(@courier_user_id, courier_user_id),
+         prep_eta_minutes = COALESCE(@prep_eta_minutes, prep_eta_minutes),
+         total_amount = COALESCE(@total_amount, total_amount),
+         delivery_address = COALESCE(@delivery_address, delivery_address)
+     WHERE id = @id`
+);
+const getOrderPricingStmt = db.prepare(
+  `SELECT id,
+          subtotal_food,
+          courier_fee,
+          service_fee,
+          discount_amount,
+          total_amount
+   FROM orders WHERE id = ?`
+);
+const getOrderItemsStmt = db.prepare(
+  `SELECT id,
+          title,
+          description,
+          photo_url,
+          sku,
+          weight_grams,
+          unit_price,
+          quantity,
+          total_price
+   FROM order_items
+   WHERE order_id = ?
+   ORDER BY id ASC`
+);
+const insertOrderItemStmt = db.prepare(
+  `INSERT INTO order_items (order_id, title, description, photo_url, sku, weight_grams, unit_price, quantity, total_price)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+);
+const updateOrderItemStmt = db.prepare(
+  `UPDATE order_items
+   SET title = ?,
+       description = ?,
+       photo_url = ?,
+       sku = ?,
+       weight_grams = ?,
+       unit_price = ?,
+       quantity = ?,
+       total_price = ?
+   WHERE id = ? AND order_id = ?`
+);
+const deleteOrderItemStmt = db.prepare(
+  "DELETE FROM order_items WHERE id = ? AND order_id = ?"
+);
+const updateOrderTotalsStmt = db.prepare(
+  `UPDATE orders
+   SET subtotal_food = @subtotal_food,
+       total_amount = @total_amount
    WHERE id = @id`
 );
 const updateOrderAcceptStmt = db.prepare(
@@ -462,14 +528,53 @@ const deleteOrderStmt = db.prepare("DELETE FROM orders WHERE id = ?");
 
 const listPromosStmt = (filters) => {
   let sql =
-    "SELECT id, code, description, discount_percent, max_uses, used_count, is_active, created_at, starts_at, ends_at, min_order_amount, outlet_id, first_order_only FROM promo_codes";
+    `SELECT promo_codes.id,
+            promo_codes.code,
+            promo_codes.description,
+            promo_codes.discount_percent,
+            promo_codes.max_uses,
+            promo_codes.used_count,
+            promo_codes.is_active,
+            promo_codes.created_at,
+            promo_codes.starts_at,
+            promo_codes.ends_at,
+            promo_codes.min_order_amount,
+            promo_codes.outlet_id,
+            promo_codes.first_order_only,
+            GROUP_CONCAT(promo_outlets.outlet_id) as outlet_ids,
+            GROUP_CONCAT(outlets.name) as outlet_names
+     FROM promo_codes
+     LEFT JOIN promo_outlets ON promo_outlets.promo_code_id = promo_codes.id
+     LEFT JOIN outlets ON outlets.id = promo_outlets.outlet_id`;
   const { conditions, params } = buildFilters(filters);
   if (conditions.length) {
     sql += ` WHERE ${conditions.join(" AND ")}`;
   }
-  sql += " ORDER BY id";
+  sql += " GROUP BY promo_codes.id ORDER BY promo_codes.id";
   return db.prepare(sql).all(params);
 };
+const getPromoWithOutletsStmt = db.prepare(
+  `SELECT promo_codes.id,
+          promo_codes.code,
+          promo_codes.description,
+          promo_codes.discount_percent,
+          promo_codes.max_uses,
+          promo_codes.used_count,
+          promo_codes.is_active,
+          promo_codes.created_at,
+          promo_codes.starts_at,
+          promo_codes.ends_at,
+          promo_codes.min_order_amount,
+          promo_codes.outlet_id,
+          promo_codes.first_order_only,
+          GROUP_CONCAT(promo_outlets.outlet_id) as outlet_ids,
+          GROUP_CONCAT(outlets.name) as outlet_names
+   FROM promo_codes
+   LEFT JOIN promo_outlets ON promo_outlets.promo_code_id = promo_codes.id
+   LEFT JOIN outlets ON outlets.id = promo_outlets.outlet_id
+   WHERE promo_codes.id = ?
+   GROUP BY promo_codes.id`
+);
 
 const createPromoStmt = db.prepare(
   `INSERT INTO promo_codes (code, description, discount_percent, max_uses, used_count, is_active, starts_at, ends_at, min_order_amount, outlet_id, first_order_only)
@@ -486,15 +591,52 @@ const updatePromoStmt = db.prepare(
        starts_at = COALESCE(@starts_at, starts_at),
        ends_at = COALESCE(@ends_at, ends_at),
        min_order_amount = COALESCE(@min_order_amount, min_order_amount),
-       outlet_id = COALESCE(@outlet_id, outlet_id),
+       outlet_id = CASE WHEN @outlet_id_set = 1 THEN @outlet_id ELSE outlet_id END,
        first_order_only = COALESCE(@first_order_only, first_order_only)
    WHERE id = @id`
 );
 const deletePromoStmt = db.prepare("DELETE FROM promo_codes WHERE id = ?");
+const deletePromoOutletsStmt = db.prepare(
+  "DELETE FROM promo_outlets WHERE promo_code_id = ?"
+);
+const insertPromoOutletStmt = db.prepare(
+  "INSERT OR IGNORE INTO promo_outlets (promo_code_id, outlet_id) VALUES (?, ?)"
+);
+
+const normalizePromoOutlets = (payload) => {
+  const outletIds = Array.isArray(payload?.outlet_ids)
+    ? payload.outlet_ids
+    : payload?.outlet_id
+      ? [payload.outlet_id]
+      : [];
+  const normalized = outletIds
+    .map((value) => Number(value))
+    .filter((value) => !Number.isNaN(value));
+  return Array.from(new Set(normalized));
+};
+
+const attachPromoOutlets = (promo) => {
+  const outletIds = promo.outlet_ids
+    ? String(promo.outlet_ids)
+        .split(",")
+        .map((value) => Number(value))
+        .filter((value) => !Number.isNaN(value))
+    : promo.outlet_id
+      ? [promo.outlet_id]
+      : [];
+  const outletNames = promo.outlet_names
+    ? String(promo.outlet_names).split(",")
+    : [];
+  return {
+    ...promo,
+    outlet_ids: outletIds,
+    outlet_names: outletNames.filter(Boolean)
+  };
+};
 
 const listLedgerStmt = (filters) => {
   let sql =
-    "SELECT id, title, amount, status, type, created_at, user_id, order_id, balance_delta, category FROM finance_ledger";
+    "SELECT id, title, amount, status, type, created_at, user_id, partner_id, order_id, balance_delta, category FROM finance_ledger";
   const { conditions, params } = buildFilters(filters);
   if (conditions.length) {
     sql += ` WHERE ${conditions.join(" AND ")}`;
@@ -503,8 +645,8 @@ const listLedgerStmt = (filters) => {
   return db.prepare(sql).all(params);
 };
 const createLedgerStmt = db.prepare(
-  `INSERT INTO finance_ledger (title, amount, status, type, user_id, order_id, balance_delta, category)
-   VALUES (@title, @amount, @status, @type, @user_id, @order_id, @balance_delta, @category)`
+  `INSERT INTO finance_ledger (title, amount, status, type, user_id, partner_id, order_id, balance_delta, category)
+   VALUES (@title, @amount, @status, @type, @user_id, @partner_id, @order_id, @balance_delta, @category)`
 );
 const updateLedgerStmt = db.prepare(
   `UPDATE finance_ledger
@@ -513,6 +655,7 @@ const updateLedgerStmt = db.prepare(
        status = COALESCE(@status, status),
        type = COALESCE(@type, type),
        user_id = COALESCE(@user_id, user_id),
+       partner_id = COALESCE(@partner_id, partner_id),
        order_id = COALESCE(@order_id, order_id),
        balance_delta = COALESCE(@balance_delta, balance_delta),
        category = COALESCE(@category, category)
@@ -1513,7 +1656,8 @@ app.get("/api/partners/list", (req, res) => {
   const { conditions, params } = buildFilters([
     {
       value: q ? `%${q}%` : null,
-      clause: "(partners.name LIKE @q OR partners.manager LIKE @q)",
+      clause:
+        "(partners.name LIKE @q OR partners.manager LIKE @q OR partners.contact_name LIKE @q OR partners.email LIKE @q OR partners.phone_primary LIKE @q)",
       paramName: "q"
     },
     { value: status, clause: "partners.status = @status", paramName: "status" }
@@ -1532,6 +1676,9 @@ app.get("/api/partners/list", (req, res) => {
               partners.name,
               partners.manager,
               partners.status,
+              partners.contact_name,
+              partners.phone_primary,
+              partners.email,
               COALESCE(outlets_count.count, 0) as outlets_count
        FROM partners
        LEFT JOIN (
@@ -1549,11 +1696,13 @@ app.get("/api/partners/list", (req, res) => {
 
 app.get("/api/partners", (_req, res) => {
   const { q } = _req.query;
-  let sql = "SELECT id, name, manager, status FROM partners";
+  let sql =
+    "SELECT id, name, manager, status, contact_name, phone_primary, email FROM partners";
   const { conditions, params } = buildFilters([
     {
       value: q ? `%${q}%` : null,
-      clause: "(name LIKE @q OR manager LIKE @q)",
+      clause:
+        "(name LIKE @q OR manager LIKE @q OR contact_name LIKE @q OR email LIKE @q OR phone_primary LIKE @q)",
       paramName: "q"
     }
   ]);
@@ -1568,10 +1717,17 @@ app.post("/api/partners", requireRole(["admin", "operator"]), (req, res) => {
   const result = createPartnerStmt.run({
     name: req.body.name,
     manager: req.body.manager ?? null,
-    status: req.body.status ?? "active"
+    status: req.body.status ?? "active",
+    contact_name: req.body.contact_name ?? null,
+    phone_primary: req.body.phone_primary ?? null,
+    phone_secondary: req.body.phone_secondary ?? null,
+    phone_tertiary: req.body.phone_tertiary ?? null,
+    email: req.body.email ?? null
   });
   const partner = db
-    .prepare("SELECT id, name, manager, status FROM partners WHERE id = ?")
+    .prepare(
+      "SELECT id, name, manager, status, contact_name, phone_primary, phone_secondary, phone_tertiary, email FROM partners WHERE id = ?"
+    )
     .get(result.lastInsertRowid);
   logAudit({
     entity_type: "partner",
@@ -1587,7 +1743,9 @@ app.post("/api/partners", requireRole(["admin", "operator"]), (req, res) => {
 app.patch("/api/partners/:id", requireRole(["admin", "operator"]), (req, res) => {
   const id = Number(req.params.id);
   const partner = db
-    .prepare("SELECT id, name, manager, status FROM partners WHERE id = ?")
+    .prepare(
+      "SELECT id, name, manager, status, contact_name, phone_primary, phone_secondary, phone_tertiary, email FROM partners WHERE id = ?"
+    )
     .get(id);
   if (!partner) {
     return res.status(404).json({ error: "Partner not found" });
@@ -1596,10 +1754,17 @@ app.patch("/api/partners/:id", requireRole(["admin", "operator"]), (req, res) =>
     id,
     name: req.body.name ?? null,
     manager: req.body.manager ?? null,
-    status: req.body.status ?? null
+    status: req.body.status ?? null,
+    contact_name: req.body.contact_name ?? null,
+    phone_primary: req.body.phone_primary ?? null,
+    phone_secondary: req.body.phone_secondary ?? null,
+    phone_tertiary: req.body.phone_tertiary ?? null,
+    email: req.body.email ?? null
   });
   const updated = db
-    .prepare("SELECT id, name, manager, status FROM partners WHERE id = ?")
+    .prepare(
+      "SELECT id, name, manager, status, contact_name, phone_primary, phone_secondary, phone_tertiary, email FROM partners WHERE id = ?"
+    )
     .get(id);
   logAudit({
     entity_type: "partner",
@@ -1639,6 +1804,11 @@ app.get("/api/partners/:id", (req, res) => {
               partners.name,
               partners.manager,
               partners.status,
+              partners.contact_name,
+              partners.phone_primary,
+              partners.phone_secondary,
+              partners.phone_tertiary,
+              partners.email,
               COALESCE(outlets_count.count, 0) as outlets_count
        FROM partners
        LEFT JOIN (
@@ -1673,7 +1843,12 @@ app.get("/api/partners/:id/outlets", (req, res) => {
               outlets.is_active,
               outlets.status,
               outlets.hours,
-              outlets.delivery_zone
+              outlets.delivery_zone,
+              outlets.phone,
+              outlets.email,
+              outlets.address_comment,
+              outlets.status_reason,
+              outlets.status_updated_at
        FROM outlets
        WHERE partner_id = @partner_id
        ORDER BY outlets.id DESC
@@ -1736,11 +1911,55 @@ app.delete("/api/partners/:id/notes/:noteId", requireRole(["admin", "support", "
   res.status(204).send();
 });
 
+app.get("/api/partners/:id/finance", (req, res) => {
+  const id = Number(req.params.id);
+  const partner = db.prepare("SELECT id FROM partners WHERE id = ?").get(id);
+  if (!partner) {
+    return res.status(404).json({ error: "Partner not found" });
+  }
+
+  const totals = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(orders.subtotal_food), 0) as turnover,
+         COALESCE(SUM(orders.restaurant_commission), 0) as commission,
+         COALESCE(SUM(orders.restaurant_penalty), 0) as penalties
+       FROM orders
+       JOIN outlets ON outlets.id = orders.outlet_id
+       WHERE outlets.partner_id = ?`
+    )
+    .get(id);
+  const payouts = Math.max(
+    0,
+    Number(totals.turnover || 0) -
+      Number(totals.commission || 0) -
+      Number(totals.penalties || 0)
+  );
+
+  const ledger = db
+    .prepare(
+      `SELECT id, title, amount, status, type, created_at, order_id, balance_delta, category
+       FROM finance_ledger
+       WHERE partner_id = ?
+       ORDER BY created_at DESC`
+    )
+    .all(id);
+
+  res.json({
+    summary: [
+      { type: "turnover", value: totals.turnover },
+      { type: "commission", value: totals.commission },
+      { type: "payouts", value: payouts }
+    ],
+    transactions: ledger
+  });
+});
+
 app.get("/api/outlets", (_req, res) => {
   const { q, type, partner_id } = _req.query;
   const partnerIdNumber = partner_id ? Number(partner_id) : null;
   let sql =
-    "SELECT id, partner_id, type, name, address, is_active, status, hours, delivery_zone FROM outlets";
+    "SELECT id, partner_id, type, name, address, is_active, status, hours, delivery_zone, phone, email, address_comment, status_reason, status_updated_at FROM outlets";
   const { conditions, params } = buildFilters([
     {
       value: q ? `%${q}%` : null,
@@ -1806,6 +2025,11 @@ app.get("/api/outlets/list", (req, res) => {
               outlets.status,
               outlets.hours,
               outlets.delivery_zone,
+              outlets.phone,
+              outlets.email,
+              outlets.address_comment,
+              outlets.status_reason,
+              outlets.status_updated_at,
               partners.name as partner_name
        FROM outlets
        LEFT JOIN partners ON partners.id = outlets.partner_id
@@ -1826,12 +2050,17 @@ app.post("/api/outlets", requireRole(["admin", "operator"]), (req, res) => {
     is_active: req.body.is_active ?? 1,
     status: req.body.status ?? "open",
     hours: req.body.hours ?? null,
-    delivery_zone: req.body.delivery_zone ?? null
+    delivery_zone: req.body.delivery_zone ?? null,
+    phone: req.body.phone ?? null,
+    email: req.body.email ?? null,
+    address_comment: req.body.address_comment ?? null,
+    status_reason: req.body.status_reason ?? null,
+    status_updated_at: req.body.status ? new Date().toISOString() : null
   };
   const result = createOutletStmt.run(payload);
   const outlet = db
     .prepare(
-      "SELECT id, partner_id, type, name, address, is_active, status, hours, delivery_zone FROM outlets WHERE id = ?"
+      "SELECT id, partner_id, type, name, address, is_active, status, hours, delivery_zone, phone, email, address_comment, status_reason, status_updated_at FROM outlets WHERE id = ?"
     )
     .get(result.lastInsertRowid);
   logAudit({
@@ -1849,11 +2078,15 @@ app.patch("/api/outlets/:id", requireRole(["admin", "operator"]), (req, res) => 
   const id = Number(req.params.id);
   const outlet = db
     .prepare(
-      "SELECT id, partner_id, type, name, address, is_active, status, hours, delivery_zone FROM outlets WHERE id = ?"
+      "SELECT id, partner_id, type, name, address, is_active, status, hours, delivery_zone, phone, email, address_comment, status_reason, status_updated_at FROM outlets WHERE id = ?"
     )
     .get(id);
   if (!outlet) {
     return res.status(404).json({ error: "Outlet not found" });
+  }
+  const nextStatus = req.body.status ?? null;
+  if (nextStatus === "closed" && !req.body.status_reason) {
+    return res.status(400).json({ error: "status_reason required" });
   }
   updateOutletStmt.run({
     id,
@@ -1862,13 +2095,19 @@ app.patch("/api/outlets/:id", requireRole(["admin", "operator"]), (req, res) => 
     name: req.body.name ?? null,
     address: req.body.address ?? null,
     is_active: req.body.is_active ?? null,
-    status: req.body.status ?? null,
+    status: nextStatus,
     hours: req.body.hours ?? null,
-    delivery_zone: req.body.delivery_zone ?? null
+    delivery_zone: req.body.delivery_zone ?? null,
+    phone: req.body.phone ?? null,
+    email: req.body.email ?? null,
+    address_comment: req.body.address_comment ?? null,
+    status_reason:
+      nextStatus === "closed" ? req.body.status_reason : nextStatus ? "" : null,
+    status_updated_at: nextStatus ? new Date().toISOString() : null
   });
   const updated = db
     .prepare(
-      "SELECT id, partner_id, type, name, address, is_active, status, hours, delivery_zone FROM outlets WHERE id = ?"
+      "SELECT id, partner_id, type, name, address, is_active, status, hours, delivery_zone, phone, email, address_comment, status_reason, status_updated_at FROM outlets WHERE id = ?"
     )
     .get(id);
   logAudit({
@@ -1886,7 +2125,7 @@ app.delete("/api/outlets/:id", requireRole(["admin"]), (req, res) => {
   const id = Number(req.params.id);
   const outlet = db
     .prepare(
-      "SELECT id, partner_id, type, name, address, is_active, status, hours, delivery_zone FROM outlets WHERE id = ?"
+      "SELECT id, partner_id, type, name, address, is_active, status, hours, delivery_zone, phone, email, address_comment, status_reason, status_updated_at FROM outlets WHERE id = ?"
     )
     .get(id);
   deleteOutletStmt.run(id);
@@ -1916,6 +2155,11 @@ app.get("/api/outlets/:id", (req, res) => {
               outlets.status,
               outlets.hours,
               outlets.delivery_zone,
+              outlets.phone,
+              outlets.email,
+              outlets.address_comment,
+              outlets.status_reason,
+              outlets.status_updated_at,
               partners.name as partner_name
        FROM outlets
        LEFT JOIN partners ON partners.id = outlets.partner_id
@@ -2056,9 +2300,14 @@ app.get("/api/outlets/:outletId/items", (req, res) => {
               items.title,
               items.category,
               items.sku,
+              items.description,
+              items.photo_url,
+              items.weight_grams,
               outlet_items.base_price,
               outlet_items.is_available,
               outlet_items.stock,
+              outlet_items.unavailable_reason,
+              outlet_items.unavailable_until,
               outlet_items.updated_at
        FROM outlet_items
        JOIN items ON items.id = outlet_items.item_id
@@ -2097,10 +2346,15 @@ app.get("/api/outlets/:outletId/items", (req, res) => {
       title: row.title,
       category: row.category,
       sku: row.sku,
+      description: row.description,
+      photoUrl: row.photo_url,
+      weightGrams: row.weight_grams,
       basePrice,
       currentPrice: computeCurrentPrice(basePrice, campaign),
       isAvailable: row.is_available,
       stock: row.stock,
+      unavailableReason: row.unavailable_reason,
+      unavailableUntil: row.unavailable_until,
       updatedAt: row.updated_at,
       activeCampaign: campaign
         ? {
@@ -2136,6 +2390,84 @@ app.get("/api/outlets/:outletId/items", (req, res) => {
   });
 });
 
+app.post("/api/outlets/:outletId/items", requireRole(["admin"]), (req, res) => {
+  const outletId = Number(req.params.outletId);
+  const {
+    title,
+    sku,
+    category,
+    description,
+    photoUrl,
+    weightGrams,
+    basePrice,
+    stock,
+    isAvailable,
+    unavailableReason,
+    unavailableUntil
+  } = req.body;
+
+  if (!title || basePrice === undefined || basePrice === null) {
+    return res.status(400).json({ error: "Title and base price are required" });
+  }
+
+  const itemId = db.prepare(
+    `INSERT INTO items
+      (title, sku, category, description, photo_url, weight_grams, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    title,
+    sku ?? null,
+    category ?? null,
+    description ?? null,
+    photoUrl ?? null,
+    weightGrams ? Number(weightGrams) : 0,
+    nowIso()
+  ).lastInsertRowid;
+
+  const availableValue = isAvailable === undefined ? 1 : isAvailable ? 1 : 0;
+  const stockValue = stock === undefined || stock === "" ? null : Number(stock);
+
+  if (availableValue === 0 && !unavailableReason) {
+    return res.status(400).json({ error: "Unavailable reason is required" });
+  }
+
+  db.prepare(
+    `INSERT INTO outlet_items
+      (outlet_id, item_id, base_price, is_available, stock, unavailable_reason, unavailable_until, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    outletId,
+    itemId,
+    Number(basePrice),
+    availableValue,
+    stockValue,
+    unavailableReason ?? null,
+    unavailableUntil ?? null,
+    nowIso()
+  );
+
+  const created = db.prepare(
+    `SELECT items.id as item_id,
+            items.title,
+            items.category,
+            items.sku,
+            items.description,
+            items.photo_url,
+            items.weight_grams,
+            outlet_items.base_price,
+            outlet_items.is_available,
+            outlet_items.stock,
+            outlet_items.unavailable_reason,
+            outlet_items.unavailable_until,
+            outlet_items.updated_at
+     FROM outlet_items
+     JOIN items ON items.id = outlet_items.item_id
+     WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
+  ).get(outletId, itemId);
+
+  res.status(201).json(created);
+});
+
 app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
   const outletId = Number(req.params.outletId);
   const itemId = Number(req.params.itemId);
@@ -2143,7 +2475,20 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
 
   const outletItem = db
     .prepare(
-      "SELECT base_price, is_available, stock FROM outlet_items WHERE outlet_id = ? AND item_id = ?"
+      `SELECT outlet_items.base_price,
+              outlet_items.is_available,
+              outlet_items.stock,
+              outlet_items.unavailable_reason,
+              outlet_items.unavailable_until,
+              items.title,
+              items.category,
+              items.sku,
+              items.description,
+              items.photo_url,
+              items.weight_grams
+       FROM outlet_items
+       JOIN items ON items.id = outlet_items.item_id
+       WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
     )
     .get(outletId, itemId);
   if (!outletItem) {
@@ -2152,6 +2497,19 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
 
   const canEditPrice = role === "admin";
   const canEditAvailability = role === "admin" || role === "operator";
+  const canEditDetails = role === "admin";
+
+  const detailsFields = [
+    "title",
+    "category",
+    "sku",
+    "description",
+    "photoUrl",
+    "weightGrams"
+  ];
+  if (detailsFields.some((field) => req.body[field] !== undefined) && !canEditDetails) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
 
   if (req.body.basePrice !== undefined && !canEditPrice) {
     return res.status(403).json({ error: "Forbidden" });
@@ -2159,25 +2517,85 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
   if ((req.body.isAvailable !== undefined || req.body.stock !== undefined) && !canEditAvailability) {
     return res.status(403).json({ error: "Forbidden" });
   }
+  if ((req.body.unavailableReason !== undefined || req.body.unavailableUntil !== undefined) && !canEditAvailability) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
 
   const newBasePrice =
     req.body.basePrice !== undefined ? Number(req.body.basePrice) : null;
+  const isAvailableProvided = req.body.isAvailable !== undefined;
   const isAvailable =
-    req.body.isAvailable !== undefined ? (req.body.isAvailable ? 1 : 0) : null;
+    isAvailableProvided ? (req.body.isAvailable ? 1 : 0) : null;
   const stock =
     req.body.stock !== undefined ? Number(req.body.stock) : null;
+  const reasonProvided = req.body.unavailableReason !== undefined;
+  const untilProvided = req.body.unavailableUntil !== undefined;
+
+  let unavailableReason = reasonProvided
+    ? req.body.unavailableReason
+    : outletItem.unavailable_reason;
+  let unavailableUntil = untilProvided
+    ? req.body.unavailableUntil
+    : outletItem.unavailable_until;
+
+  if (isAvailableProvided && isAvailable === 1) {
+    unavailableReason = null;
+    unavailableUntil = null;
+  }
+
+  if (isAvailableProvided && isAvailable === 0) {
+    if (!unavailableReason || String(unavailableReason).trim() === "") {
+      return res.status(400).json({ error: "Unavailable reason is required" });
+    }
+  }
+
+  if (canEditDetails && detailsFields.some((field) => req.body[field] !== undefined)) {
+    db.prepare(
+      `UPDATE items
+       SET title = COALESCE(@title, title),
+           category = COALESCE(@category, category),
+           sku = COALESCE(@sku, sku),
+           description = COALESCE(@description, description),
+           photo_url = COALESCE(@photo_url, photo_url),
+           weight_grams = COALESCE(@weight_grams, weight_grams),
+           updated_at = @updated_at
+       WHERE id = @item_id`
+    ).run({
+      title: req.body.title,
+      category: req.body.category,
+      sku: req.body.sku,
+      description: req.body.description,
+      photo_url: req.body.photoUrl,
+      weight_grams:
+        req.body.weightGrams !== undefined ? Number(req.body.weightGrams) : null,
+      updated_at: nowIso(),
+      item_id: itemId
+    });
+  }
 
   db.prepare(
     `UPDATE outlet_items
      SET base_price = COALESCE(@base_price, base_price),
          is_available = COALESCE(@is_available, is_available),
          stock = COALESCE(@stock, stock),
+         unavailable_reason = CASE
+           WHEN @reason_set = 1 THEN @unavailable_reason
+           ELSE unavailable_reason
+         END,
+         unavailable_until = CASE
+           WHEN @until_set = 1 THEN @unavailable_until
+           ELSE unavailable_until
+         END,
          updated_at = @updated_at
      WHERE outlet_id = @outlet_id AND item_id = @item_id`
   ).run({
     base_price: newBasePrice,
     is_available: isAvailable,
     stock,
+    unavailable_reason: unavailableReason,
+    unavailable_until: unavailableUntil,
+    reason_set: reasonProvided || (isAvailableProvided && isAvailable === 1) ? 1 : 0,
+    until_set: untilProvided || (isAvailableProvided && isAvailable === 1) ? 1 : 0,
     updated_at: nowIso(),
     outlet_id: outletId,
     item_id: itemId
@@ -2200,10 +2618,50 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
 
   const updated = db
     .prepare(
-      "SELECT outlet_id, item_id, base_price, is_available, stock, updated_at FROM outlet_items WHERE outlet_id = ? AND item_id = ?"
+      `SELECT outlet_items.outlet_id,
+              outlet_items.item_id,
+              outlet_items.base_price,
+              outlet_items.is_available,
+              outlet_items.stock,
+              outlet_items.unavailable_reason,
+              outlet_items.unavailable_until,
+              outlet_items.updated_at,
+              items.title,
+              items.category,
+              items.sku,
+              items.description,
+              items.photo_url,
+              items.weight_grams
+       FROM outlet_items
+       JOIN items ON items.id = outlet_items.item_id
+       WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
     )
     .get(outletId, itemId);
   res.json(updated);
+});
+
+app.delete("/api/outlets/:outletId/items/:itemId", requireRole(["admin"]), (req, res) => {
+  const outletId = Number(req.params.outletId);
+  const itemId = Number(req.params.itemId);
+
+  const exists = db
+    .prepare("SELECT 1 FROM outlet_items WHERE outlet_id = ? AND item_id = ?")
+    .get(outletId, itemId);
+  if (!exists) {
+    return res.status(404).json({ error: "Outlet item not found" });
+  }
+
+  db.prepare(
+    `DELETE FROM outlet_campaign_items
+     WHERE item_id = ?
+       AND campaign_id IN (SELECT id FROM outlet_campaigns WHERE outlet_id = ?)`
+  ).run(itemId, outletId);
+
+  db.prepare(
+    "DELETE FROM outlet_items WHERE outlet_id = ? AND item_id = ?"
+  ).run(outletId, itemId);
+
+  res.json({ ok: true });
 });
 
 app.get("/api/outlets/:outletId/items/:itemId/price-history", (req, res) => {
@@ -2252,8 +2710,12 @@ app.get("/api/outlets/:outletId/campaigns", (req, res) => {
 app.post("/api/outlets/:outletId/campaigns", requireRole(["admin"]), (req, res) => {
   const outletId = Number(req.params.outletId);
   const title = req.body.title;
+  const status = req.body.status ?? "planned";
   if (!title) {
     return res.status(400).json({ error: "title required" });
+  }
+  if (!["planned", "active", "ended"].includes(status)) {
+    return res.status(400).json({ error: "Invalid status" });
   }
   const result = db
     .prepare(
@@ -2264,7 +2726,7 @@ app.post("/api/outlets/:outletId/campaigns", requireRole(["admin"]), (req, res) 
     .run(
       outletId,
       title,
-      "planned",
+      status,
       req.body.start_at ?? null,
       req.body.end_at ?? null,
       getActorId(req),
@@ -2343,6 +2805,7 @@ app.get("/api/outlets/:outletId/campaigns/:campaignId/items", (req, res) => {
       `SELECT outlet_campaign_items.item_id,
               outlet_campaign_items.discount_type,
               outlet_campaign_items.discount_value,
+              outlet_campaign_items.bundle_name,
               items.title,
               outlet_items.base_price
        FROM outlet_campaign_items
@@ -2357,6 +2820,7 @@ app.get("/api/outlets/:outletId/campaigns/:campaignId/items", (req, res) => {
     basePrice: row.base_price,
     discount_type: row.discount_type,
     discount_value: row.discount_value,
+    bundleName: row.bundle_name,
     currentPrice: computeCurrentPrice(Number(row.base_price || 0), row)
   }));
   res.json(items);
@@ -2365,33 +2829,53 @@ app.get("/api/outlets/:outletId/campaigns/:campaignId/items", (req, res) => {
 app.post("/api/outlets/:outletId/campaigns/:campaignId/items", requireRole(["admin"]), (req, res) => {
   const outletId = Number(req.params.outletId);
   const campaignId = Number(req.params.campaignId);
-  const itemId = Number(req.body.item_id);
   const discountType = req.body.discount_type;
   const discountValue = Number(req.body.discount_value);
-  if (!itemId || !discountType || !discountValue) {
+  const bundleName = req.body.bundle_name ?? null;
+  const itemIds = Array.isArray(req.body.item_ids)
+    ? req.body.item_ids.map((id) => Number(id)).filter((id) => !Number.isNaN(id))
+    : [Number(req.body.item_id)];
+
+  if (!itemIds.length || !discountType || Number.isNaN(discountValue)) {
     return res.status(400).json({ error: "item_id, discount_type, discount_value required" });
   }
 
-  const outletItem = db
-    .prepare("SELECT item_id FROM outlet_items WHERE outlet_id = ? AND item_id = ?")
-    .get(outletId, itemId);
-  if (!outletItem) {
+  const placeholders = itemIds.map(() => "?").join(", ");
+  const outletItems = db
+    .prepare(
+      `SELECT item_id FROM outlet_items WHERE outlet_id = ? AND item_id IN (${placeholders})`
+    )
+    .all(outletId, ...itemIds);
+  const allowed = new Set(outletItems.map((row) => row.item_id));
+  const validItemIds = itemIds.filter((id) => allowed.has(id));
+  if (!validItemIds.length) {
     return res.status(400).json({ error: "Item not in outlet menu" });
   }
 
-  db.prepare(
-    `INSERT INTO outlet_campaign_items (campaign_id, item_id, discount_type, discount_value)
-     VALUES (@campaign_id, @item_id, @discount_type, @discount_value)
+  const insertStmt = db.prepare(
+    `INSERT INTO outlet_campaign_items (campaign_id, item_id, discount_type, discount_value, bundle_name)
+     VALUES (@campaign_id, @item_id, @discount_type, @discount_value, @bundle_name)
      ON CONFLICT(campaign_id, item_id)
-     DO UPDATE SET discount_type = excluded.discount_type, discount_value = excluded.discount_value`
-  ).run({
-    campaign_id: campaignId,
-    item_id: itemId,
-    discount_type: discountType,
-    discount_value: discountValue
-  });
+     DO UPDATE SET
+       discount_type = excluded.discount_type,
+       discount_value = excluded.discount_value,
+       bundle_name = excluded.bundle_name`
+  );
 
-  res.status(201).json({ item_id: itemId });
+  const insertMany = db.transaction((ids) => {
+    ids.forEach((itemId) => {
+      insertStmt.run({
+        campaign_id: campaignId,
+        item_id: itemId,
+        discount_type: discountType,
+        discount_value: discountValue,
+        bundle_name: bundleName
+      });
+    });
+  });
+  insertMany(validItemIds);
+
+  res.status(201).json({ item_ids: validItemIds });
 });
 
 app.patch("/api/outlets/:outletId/campaigns/:campaignId/items/:itemId", requireRole(["admin"]), (req, res) => {
@@ -2400,13 +2884,15 @@ app.patch("/api/outlets/:outletId/campaigns/:campaignId/items/:itemId", requireR
   db.prepare(
     `UPDATE outlet_campaign_items
      SET discount_type = COALESCE(@discount_type, discount_type),
-         discount_value = COALESCE(@discount_value, discount_value)
+         discount_value = COALESCE(@discount_value, discount_value),
+         bundle_name = COALESCE(@bundle_name, bundle_name)
      WHERE campaign_id = @campaign_id AND item_id = @item_id`
   ).run({
     campaign_id: campaignId,
     item_id: itemId,
     discount_type: req.body.discount_type ?? null,
-    discount_value: req.body.discount_value ?? null
+    discount_value: req.body.discount_value ?? null,
+    bundle_name: req.body.bundle_name ?? null
   });
   res.json({ item_id: itemId });
 });
@@ -2424,7 +2910,7 @@ app.get("/api/couriers", (_req, res) => {
   const { status, q } = _req.query;
   const qNumber = q ? Number(q) : null;
   let sql =
-    "SELECT user_id, is_active, rating_avg, rating_count, phone FROM couriers";
+    "SELECT user_id, is_active, rating_avg, rating_count, phone, full_name, address, delivery_methods FROM couriers";
   const { conditions, params } = buildFilters([
     {
       value: qNumber !== null && !Number.isNaN(qNumber) ? qNumber : null,
@@ -2492,6 +2978,9 @@ app.get("/api/couriers/list", (req, res) => {
               couriers.rating_avg,
               couriers.rating_count,
               couriers.phone,
+              couriers.full_name,
+              couriers.address,
+              couriers.delivery_methods,
               COALESCE(stats.orders_today, 0) as orders_today
        FROM couriers
        JOIN users ON users.id = couriers.user_id
@@ -2517,12 +3006,16 @@ app.post("/api/couriers", requireRole(["admin", "operator"]), (req, res) => {
     is_active: req.body.is_active ?? 1,
     rating_avg: req.body.rating_avg ?? 0,
     rating_count: req.body.rating_count ?? 0,
-    phone: req.body.phone ?? null
+    phone: req.body.phone ?? null,
+    full_name: req.body.full_name ?? null,
+    address: req.body.address ?? null,
+    delivery_methods: req.body.delivery_methods ?? null
   };
   createCourierStmt.run(payload);
   const courier = db
     .prepare(
-      "SELECT user_id, is_active, rating_avg, rating_count, phone FROM couriers WHERE user_id = ?"
+      `SELECT user_id, is_active, rating_avg, rating_count, phone, full_name, address, delivery_methods
+       FROM couriers WHERE user_id = ?`
     )
     .get(payload.user_id);
   logAudit({
@@ -2539,7 +3032,9 @@ app.post("/api/couriers", requireRole(["admin", "operator"]), (req, res) => {
 app.patch("/api/couriers/:id", requireRole(["admin", "operator"]), (req, res) => {
   const userId = Number(req.params.id);
   const courier = db
-    .prepare("SELECT user_id, is_active, rating_avg, rating_count, phone FROM couriers WHERE user_id = ?")
+    .prepare(
+      "SELECT user_id, is_active, rating_avg, rating_count, phone, full_name, address, delivery_methods FROM couriers WHERE user_id = ?"
+    )
     .get(userId);
   if (!courier) {
     return res.status(404).json({ error: "Courier not found" });
@@ -2549,11 +3044,15 @@ app.patch("/api/couriers/:id", requireRole(["admin", "operator"]), (req, res) =>
     is_active: req.body.is_active ?? null,
     rating_avg: req.body.rating_avg ?? null,
     rating_count: req.body.rating_count ?? null,
-    phone: req.body.phone ?? null
+    phone: req.body.phone ?? null,
+    full_name: req.body.full_name ?? null,
+    address: req.body.address ?? null,
+    delivery_methods: req.body.delivery_methods ?? null
   });
   const updated = db
     .prepare(
-      "SELECT user_id, is_active, rating_avg, rating_count, phone FROM couriers WHERE user_id = ?"
+      `SELECT user_id, is_active, rating_avg, rating_count, phone, full_name, address, delivery_methods
+       FROM couriers WHERE user_id = ?`
     )
     .get(userId);
   logAudit({
@@ -2603,7 +3102,10 @@ app.get("/api/couriers/:id", (req, res) => {
               couriers.is_active,
               couriers.rating_avg,
               couriers.rating_count,
-              couriers.phone
+              couriers.phone,
+              couriers.full_name,
+              couriers.address,
+              couriers.delivery_methods
        FROM couriers
        JOIN users ON users.id = couriers.user_id
        WHERE couriers.user_id = ?`
@@ -2896,8 +3398,27 @@ app.get("/api/orders/:id/details", (req, res) => {
               orders.ready_at,
               orders.picked_up_at,
               orders.delivered_at,
+              orders.promised_delivery_at,
+              orders.sent_to_restaurant_at,
               orders.total_amount,
+              orders.subtotal_food,
+              orders.courier_fee,
+              orders.service_fee,
+              orders.discount_amount,
+              orders.promo_code,
               orders.delivery_address,
+              orders.delivery_address_comment,
+              orders.address_entrance,
+              orders.address_floor,
+              orders.address_apartment,
+              orders.comment_to_restaurant,
+              orders.comment_to_address,
+              orders.crm_comment,
+              orders.receiver_name,
+              orders.receiver_phone,
+              orders.orderer_phone,
+              orders.utensils_count,
+              orders.is_for_other,
               orders.courier_user_id,
               orders.client_user_id,
               orders.outlet_id,
@@ -2916,6 +3437,22 @@ app.get("/api/orders/:id/details", (req, res) => {
   if (!row) {
     return res.status(404).json({ error: "Order not found" });
   }
+  const items = db
+    .prepare(
+      `SELECT id,
+              title,
+              description,
+              photo_url,
+              sku,
+              weight_grams,
+              unit_price,
+              quantity,
+              total_price
+       FROM order_items
+       WHERE order_id = ?
+       ORDER BY id ASC`
+    )
+    .all(id);
   const events = db
     .prepare(
       `SELECT order_events.id,
@@ -2935,8 +3472,19 @@ app.get("/api/orders/:id/details", (req, res) => {
       payload: normalizeEventPayload(event.payload)
     }));
   const signals = computeOrderSignals(row, events);
+  const totalAmount =
+    row.total_amount ??
+    Math.max(
+      0,
+      (row.subtotal_food || 0) +
+        (row.courier_fee || 0) +
+        (row.service_fee || 0) -
+        (row.discount_amount || 0)
+    );
   res.json({
     ...row,
+    total_amount: totalAmount,
+    items,
     ...signals,
     links: {
       clientId: row.client_user_id,
@@ -3063,6 +3611,249 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
   });
   res.json(updated);
 });
+
+  app.post(
+    "/api/orders/:id/compensation",
+    requireRole(["admin", "support", "operator"]),
+    (req, res) => {
+    const id = Number(req.params.id);
+    const order = getOrderStmt.get(id);
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    const reason = String(req.body?.reason || "").trim();
+    const mode = req.body?.mode === "percent" ? "percent" : "amount";
+    const value = Number(req.body?.value || 0);
+    const comment = String(req.body?.comment || "").trim();
+    if (!reason) {
+      return res.status(400).json({ error: "reason is required" });
+    }
+    if (!value || Number.isNaN(value)) {
+      return res.status(400).json({ error: "value is required" });
+    }
+    logOrderEvent({
+      order_id: id,
+      type: "compensation_issued",
+      payload: { reason, mode, value, comment },
+      actor_id: getActorId(req)
+    });
+    logAudit({
+      entity_type: "order",
+      entity_id: id,
+      action: "compensation",
+      actor_id: getActorId(req),
+      before: order,
+      after: { ...order }
+    });
+      res.status(201).json({ status: "ok" });
+    }
+  );
+
+  app.post(
+    "/api/orders/:id/items",
+    requireRole(["admin", "support", "operator"]),
+    (req, res) => {
+      const id = Number(req.params.id);
+      const order = getOrderPricingStmt.get(id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const comment = String(req.body?.comment || "").trim();
+      if (!comment) {
+        return res.status(400).json({ error: "comment is required" });
+      }
+      const incomingItems = Array.isArray(req.body?.items) ? req.body.items : null;
+      if (!incomingItems) {
+        return res.status(400).json({ error: "items are required" });
+      }
+
+      const normalized = incomingItems.map((item) => ({
+        id: item?.id ? Number(item.id) : null,
+        title: String(item?.title || "").trim(),
+        description: item?.description ? String(item.description).trim() : null,
+        photo_url: item?.photo_url ? String(item.photo_url).trim() : null,
+        sku: item?.sku ? String(item.sku).trim() : null,
+        weight_grams: Number(item?.weight_grams || 0),
+        unit_price: Number(item?.unit_price || 0),
+        quantity: Number(item?.quantity || 0)
+      }));
+
+      for (const item of normalized) {
+        if (!item.title) {
+          return res.status(400).json({ error: "title is required" });
+        }
+        if (!item.quantity || item.quantity < 1) {
+          return res.status(400).json({ error: "quantity is required" });
+        }
+        if (Number.isNaN(item.unit_price) || item.unit_price < 0) {
+          return res.status(400).json({ error: "unit_price is invalid" });
+        }
+        if (Number.isNaN(item.weight_grams) || item.weight_grams < 0) {
+          return res.status(400).json({ error: "weight_grams is invalid" });
+        }
+      }
+
+      const actorId = getActorId(req);
+      const updateItems = db.transaction(() => {
+        const beforeItems = getOrderItemsStmt.all(id);
+        const existingIds = new Set(beforeItems.map((item) => item.id));
+        const seenIds = new Set();
+
+        normalized.forEach((item) => {
+          const totalPrice = item.unit_price * item.quantity;
+          if (item.id) {
+            if (!existingIds.has(item.id)) {
+              throw new Error("item not found");
+            }
+            seenIds.add(item.id);
+            updateOrderItemStmt.run(
+              item.title,
+              item.description,
+              item.photo_url,
+              item.sku,
+              item.weight_grams,
+              item.unit_price,
+              item.quantity,
+              totalPrice,
+              item.id,
+              id
+            );
+          } else {
+            insertOrderItemStmt.run(
+              id,
+              item.title,
+              item.description,
+              item.photo_url,
+              item.sku,
+              item.weight_grams,
+              item.unit_price,
+              item.quantity,
+              totalPrice
+            );
+          }
+        });
+
+        beforeItems.forEach((item) => {
+          if (!seenIds.has(item.id) && existingIds.has(item.id)) {
+            deleteOrderItemStmt.run(item.id, id);
+          }
+        });
+
+        const afterItems = getOrderItemsStmt.all(id);
+        const subtotalFood = afterItems.reduce(
+          (sum, item) => sum + Number(item.total_price || 0),
+          0
+        );
+        const totalAmount = Math.max(
+          0,
+          subtotalFood +
+            (order.courier_fee || 0) +
+            (order.service_fee || 0) -
+            (order.discount_amount || 0)
+        );
+        updateOrderTotalsStmt.run({
+          id,
+          subtotal_food: subtotalFood,
+          total_amount: totalAmount
+        });
+        logOrderEvent({
+          order_id: id,
+          type: "cart_updated",
+          payload: { comment },
+          actor_id: actorId
+        });
+        logAudit({
+          entity_type: "order",
+          entity_id: id,
+          action: "cart_update",
+          actor_id: actorId,
+          before: {
+            items: beforeItems,
+            subtotal_food: order.subtotal_food,
+            total_amount: order.total_amount
+          },
+          after: {
+            items: afterItems,
+            subtotal_food: subtotalFood,
+            total_amount: totalAmount
+          }
+        });
+        return {
+          items: afterItems,
+          subtotal_food: subtotalFood,
+          total_amount: totalAmount
+        };
+      });
+
+      try {
+        const updated = updateItems();
+        return res.json(updated);
+      } catch (error) {
+        if (error.message === "item not found") {
+          return res.status(400).json({ error: "item not found" });
+        }
+        return res.status(500).json({ error: "Failed to update items" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/orders/:id/notify",
+    requireRole(["admin", "support", "operator"]),
+    (req, res) => {
+      const id = Number(req.params.id);
+      const order = getOrderStmt.get(id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const message = String(req.body?.message || "").trim();
+      if (!message) {
+        return res.status(400).json({ error: "message is required" });
+      }
+      logOrderEvent({
+        order_id: id,
+        type: "notify_client",
+        payload: { message },
+        actor_id: getActorId(req)
+      });
+      logAudit({
+        entity_type: "order",
+        entity_id: id,
+        action: "notify_client",
+        actor_id: getActorId(req),
+        before: order,
+        after: { ...order }
+      });
+      res.status(201).json({ status: "ok" });
+    }
+  );
+
+  app.post(
+    "/api/orders/:id/resend",
+    requireRole(["admin", "support", "operator"]),
+    (req, res) => {
+      const id = Number(req.params.id);
+      const order = getOrderStmt.get(id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      logOrderEvent({
+        order_id: id,
+        type: "resend_to_restaurant",
+        payload: null,
+        actor_id: getActorId(req)
+      });
+      logAudit({
+        entity_type: "order",
+        entity_id: id,
+        action: "resend_to_restaurant",
+        actor_id: getActorId(req),
+        before: order,
+        after: { ...order }
+      });
+      res.status(201).json({ status: "ok" });
+    }
+  );
 
 app.post("/api/orders", requireRole(["admin", "operator"]), (req, res) => {
   const payload = {
@@ -3316,7 +4107,7 @@ app.get("/api/promos", (req, res) => {
   const rows = listPromosStmt([
     {
       value: q ? `%${q}%` : null,
-      clause: "(code LIKE @q OR description LIKE @q)",
+      clause: "(promo_codes.code LIKE @q OR promo_codes.description LIKE @q)",
       paramName: "q"
     },
     {
@@ -3324,14 +4115,15 @@ app.get("/api/promos", (req, res) => {
         is_active !== undefined
           ? Number(is_active)
           : null,
-      clause: "is_active = @is_active",
+      clause: "promo_codes.is_active = @is_active",
       paramName: "is_active"
     }
-  ]);
+  ]).map(attachPromoOutlets);
   res.json(rows);
 });
 
 app.post("/api/promos", requireRole(["admin"]), (req, res) => {
+  const outletIds = normalizePromoOutlets(req.body);
   const payload = {
     code: req.body.code,
     description: req.body.description ?? null,
@@ -3342,15 +4134,18 @@ app.post("/api/promos", requireRole(["admin"]), (req, res) => {
     starts_at: req.body.starts_at ?? null,
     ends_at: req.body.ends_at ?? null,
     min_order_amount: req.body.min_order_amount ?? null,
-    outlet_id: req.body.outlet_id ?? null,
+    outlet_id: outletIds.length === 1 ? outletIds[0] : null,
     first_order_only: req.body.first_order_only ?? null
   };
-  const result = createPromoStmt.run(payload);
-  const promo = db
-    .prepare(
-      "SELECT id, code, description, discount_percent, max_uses, used_count, is_active, created_at, starts_at, ends_at, min_order_amount, outlet_id, first_order_only FROM promo_codes WHERE id = ?"
-    )
-    .get(result.lastInsertRowid);
+  const createPromo = db.transaction(() => {
+    const result = createPromoStmt.run(payload);
+    outletIds.forEach((outletId) => {
+      insertPromoOutletStmt.run(result.lastInsertRowid, outletId);
+    });
+    return result.lastInsertRowid;
+  });
+  const promoId = createPromo();
+  const promo = attachPromoOutlets(getPromoWithOutletsStmt.get(promoId));
   logAudit({
     entity_type: "promo",
     entity_id: promo.id,
@@ -3364,39 +4159,44 @@ app.post("/api/promos", requireRole(["admin"]), (req, res) => {
 
 app.patch("/api/promos/:id", requireRole(["admin"]), (req, res) => {
   const id = Number(req.params.id);
-  const promo = db
-    .prepare(
-      "SELECT id, code, description, discount_percent, max_uses, used_count, is_active, created_at, starts_at, ends_at, min_order_amount, outlet_id, first_order_only FROM promo_codes WHERE id = ?"
-    )
-    .get(id);
+  const promo = getPromoWithOutletsStmt.get(id);
   if (!promo) {
     return res.status(404).json({ error: "Promo not found" });
   }
-  updatePromoStmt.run({
-    id,
-    code: req.body.code ?? null,
-    description: req.body.description ?? null,
-    discount_percent: req.body.discount_percent ?? null,
-    max_uses: req.body.max_uses ?? null,
-    used_count: req.body.used_count ?? null,
-    is_active: req.body.is_active ?? null,
-    starts_at: req.body.starts_at ?? null,
-    ends_at: req.body.ends_at ?? null,
-    min_order_amount: req.body.min_order_amount ?? null,
-    outlet_id: req.body.outlet_id ?? null,
-    first_order_only: req.body.first_order_only ?? null
+  const shouldUpdateOutlets =
+    Array.isArray(req.body?.outlet_ids) || req.body?.outlet_id !== undefined;
+  const outletIds = normalizePromoOutlets(req.body);
+  const updatePromo = db.transaction(() => {
+    updatePromoStmt.run({
+      id,
+      code: req.body.code ?? null,
+      description: req.body.description ?? null,
+      discount_percent: req.body.discount_percent ?? null,
+      max_uses: req.body.max_uses ?? null,
+      used_count: req.body.used_count ?? null,
+      is_active: req.body.is_active ?? null,
+      starts_at: req.body.starts_at ?? null,
+      ends_at: req.body.ends_at ?? null,
+      min_order_amount: req.body.min_order_amount ?? null,
+      outlet_id_set: shouldUpdateOutlets ? 1 : 0,
+      outlet_id: outletIds.length === 1 ? outletIds[0] : null,
+      first_order_only: req.body.first_order_only ?? null
+    });
+    if (shouldUpdateOutlets) {
+      deletePromoOutletsStmt.run(id);
+      outletIds.forEach((outletId) => {
+        insertPromoOutletStmt.run(id, outletId);
+      });
+    }
   });
-  const updated = db
-    .prepare(
-      "SELECT id, code, description, discount_percent, max_uses, used_count, is_active, created_at, starts_at, ends_at, min_order_amount, outlet_id, first_order_only FROM promo_codes WHERE id = ?"
-    )
-    .get(id);
+  updatePromo();
+  const updated = attachPromoOutlets(getPromoWithOutletsStmt.get(id));
   logAudit({
     entity_type: "promo",
     entity_id: id,
     action: "update",
     actor_id: getActorId(req),
-    before: promo,
+    before: attachPromoOutlets(promo),
     after: updated
   });
   res.json(updated);
@@ -3404,11 +4204,7 @@ app.patch("/api/promos/:id", requireRole(["admin"]), (req, res) => {
 
 app.delete("/api/promos/:id", requireRole(["admin"]), (req, res) => {
   const id = Number(req.params.id);
-  const promo = db
-    .prepare(
-      "SELECT id, code, description, discount_percent, max_uses, used_count, is_active, created_at, starts_at, ends_at, min_order_amount, outlet_id, first_order_only FROM promo_codes WHERE id = ?"
-    )
-    .get(id);
+  const promo = getPromoWithOutletsStmt.get(id);
   deletePromoStmt.run(id);
   if (promo) {
     logAudit({
@@ -3416,7 +4212,7 @@ app.delete("/api/promos/:id", requireRole(["admin"]), (req, res) => {
       entity_id: id,
       action: "delete",
       actor_id: getActorId(req),
-      before: promo,
+      before: attachPromoOutlets(promo),
       after: null
     });
   }
@@ -3425,15 +4221,11 @@ app.delete("/api/promos/:id", requireRole(["admin"]), (req, res) => {
 
 app.get("/api/promos/:id", (req, res) => {
   const id = Number(req.params.id);
-  const promo = db
-    .prepare(
-      "SELECT id, code, description, discount_percent, max_uses, used_count, is_active, created_at, starts_at, ends_at, min_order_amount, outlet_id, first_order_only FROM promo_codes WHERE id = ?"
-    )
-    .get(id);
+  const promo = getPromoWithOutletsStmt.get(id);
   if (!promo) {
     return res.status(404).json({ error: "Promo not found" });
   }
-  res.json(promo);
+  res.json(attachPromoOutlets(promo));
 });
 
 app.get("/api/finance/summary", (req, res) => {

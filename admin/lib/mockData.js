@@ -33,7 +33,7 @@ export const orders = [
     order_number: "ORD-1041",
     outlet: "Burger Way",
     courier: "Шавкат А.",
-    status: "Принят рестораном",
+    status: "accepted_by_restaurant",
     status_raw: "accepted_by_restaurant",
     pickup_code_plain: "815"
   },
@@ -43,7 +43,7 @@ export const orders = [
     order_number: "ORD-1040",
     outlet: "Green Market",
     courier: "-",
-    status: "Готов к выдаче",
+    status: "ready_for_pickup",
     status_raw: "ready_for_pickup",
     pickup_code_plain: null
   },
@@ -53,32 +53,32 @@ export const orders = [
     order_number: "ORD-1039",
     outlet: "Sushi Lab",
     courier: "Нодира К.",
-    status: "Курьер забрал",
+    status: "picked_up",
     status_raw: "picked_up",
     pickup_code_plain: null
   }
 ];
 
 export const financeSummary = [
-  { type: "Комиссия", amount: "7% от subtotal" },
-  { type: "Сервисный сбор", amount: "5 000 сум" },
-  { type: "Доля доставки", amount: "20% от courier_fee" }
+  { type: "commission", amount: 7 },
+  { type: "service_fee", amount: 5000 },
+  { type: "delivery_share", amount: 20 }
 ];
 
 export const financeTransactions = [
-  { id: 1, title: "Выплата курьеру #208", amount: "120 000 сум", status: "pending" },
-  { id: 2, title: "Комиссия партнёра #41", amount: "86 000 сум", status: "completed" }
+  { id: 1, title: "Выплата курьеру #208", amount: 120000, status: "pending" },
+  { id: 2, title: "Комиссия партнёра #41", amount: 86000, status: "completed" }
 ];
 
 export const dashboardCards = [
-  { title: "Заказы сегодня", value: "124" },
-  { title: "Активные курьеры", value: "18" },
-  { title: "Новые клиенты", value: "32" },
-  { title: "Сервисный сбор", value: "1 200 000 сум" }
+  { titleKey: "dashboard.cards.ordersToday", value: "124" },
+  { titleKey: "dashboard.cards.activeCouriers", value: "18" },
+  { titleKey: "dashboard.cards.newClients", value: "32" },
+  { titleKey: "dashboard.cards.serviceFee", value: "1 200 000" }
 ];
 
 export const recentOrders = [
-  { id: "ORD-1041", outlet: "Burger Way", status: "Принят рестораном" },
-  { id: "ORD-1040", outlet: "Green Market", status: "Готов к выдаче" },
-  { id: "ORD-1039", outlet: "Sushi Lab", status: "Курьер забрал" }
+  { id: "ORD-1041", outlet: "Burger Way", status: "accepted_by_restaurant" },
+  { id: "ORD-1040", outlet: "Green Market", status: "ready_for_pickup" },
+  { id: "ORD-1039", outlet: "Sushi Lab", status: "picked_up" }
 ];

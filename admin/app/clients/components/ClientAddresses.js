@@ -10,6 +10,7 @@ import {
   setPrimaryClientAddress,
   updateClientAddress
 } from "../../../lib/api/clientAddressesApi";
+import { useLocale } from "../../components/LocaleProvider";
 
 const emptyForm = {
   label: "",
@@ -30,7 +31,7 @@ const Modal = ({ open, title, onClose, children }) => {
         <div className="modal-header">
           <div className="modal-title">{title}</div>
           <button className="modal-close" type="button" onClick={onClose}>
-            ×
+            x
           </button>
         </div>
         {children}
@@ -47,6 +48,7 @@ export default function ClientAddresses({
   role,
   onReload
 }) {
+  const { t } = useLocale();
   const [toast, setToast] = useState(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -54,7 +56,6 @@ export default function ClientAddresses({
   const { confirm, dialog } = useConfirm();
 
   const canManage = ["admin", "support"].includes(normalizeRole(role));
-
 
   const openCreate = () => {
     setEditing(null);
@@ -80,7 +81,7 @@ export default function ClientAddresses({
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!form.address_text.trim()) {
-      setToast({ type: "error", message: "Address is required" });
+      setToast({ type: "error", message: t("clients.addresses.required") });
       return;
     }
     const payload = {
@@ -99,25 +100,25 @@ export default function ClientAddresses({
       : await createClientAddress(clientId, payload);
 
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Address saved" });
+    setToast({ type: "success", message: t("clients.addresses.saved") });
     setOpen(false);
     onReload();
   };
 
   const handleDelete = (address) => {
     confirm({
-      title: "Delete address?",
-      description: "This action cannot be undone.",
+      title: t("clients.addresses.deleteTitle"),
+      description: t("clients.addresses.deleteDescription"),
       onConfirm: async () => {
         const result = await deleteClientAddress(clientId, address.id);
         if (!result.ok) {
-          setToast({ type: "error", message: result.error });
+          setToast({ type: "error", message: t(result.error) });
           return;
         }
-        setToast({ type: "success", message: "Address deleted" });
+        setToast({ type: "success", message: t("clients.addresses.deleted") });
         onReload();
       }
     });
@@ -126,10 +127,10 @@ export default function ClientAddresses({
   const handleSetPrimary = async (address) => {
     const result = await setPrimaryClientAddress(clientId, address.id);
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Primary updated" });
+    setToast({ type: "success", message: t("clients.addresses.primaryUpdated") });
     onReload();
   };
 
@@ -141,13 +142,13 @@ export default function ClientAddresses({
         onClose={() => setToast(null)}
       />
       {dialog}
-      <div className="profile-title">Addresses</div>
-      {error ? <div className="banner error">{error}</div> : null}
+      <div className="profile-title">{t("clients.addresses.title")}</div>
+      {error ? <div className="banner error">{t(error)}</div> : null}
       <div className="toolbar">
         <div className="toolbar-actions">
           {canManage ? (
             <button className="button" type="button" onClick={openCreate}>
-              Add address
+              {t("clients.addresses.add")}
             </button>
           ) : null}
         </div>
@@ -156,24 +157,28 @@ export default function ClientAddresses({
       {loading ? (
         <div className="skeleton-block" />
       ) : addresses.length === 0 ? (
-        <div className="empty-state">No addresses yet</div>
+        <div className="empty-state">{t("clients.addresses.none")}</div>
       ) : (
         <div className="card-grid">
           {addresses.map((address) => (
             <div key={address.id} className="card">
               <div className="card-title">
-                {address.label || "Address"}
+                {address.label || t("clients.addresses.address")}
                 {address.is_primary ? (
                   <span className="badge" style={{ marginLeft: "8px" }}>
-                    Primary
+                    {t("clients.addresses.primary")}
                   </span>
                 ) : null}
               </div>
               <div className="helper-text">{address.address_text}</div>
               <div className="helper-text">
-                {address.entrance ? `Entrance: ${address.entrance}` : ""}
-                {address.floor ? ` Floor: ${address.floor}` : ""}
-                {address.apartment ? ` Apt: ${address.apartment}` : ""}
+                {address.entrance
+                  ? `${t("clients.addresses.entrance")}: ${address.entrance}`
+                  : ""}
+                {address.floor ? ` ${t("clients.addresses.floor")}: ${address.floor}` : ""}
+                {address.apartment
+                  ? ` ${t("clients.addresses.apartment")}: ${address.apartment}`
+                  : ""}
               </div>
               {address.comment ? (
                 <div className="helper-text">{address.comment}</div>
@@ -185,7 +190,7 @@ export default function ClientAddresses({
                     type="button"
                     onClick={() => handleSetPrimary(address)}
                   >
-                    Set primary
+                    {t("clients.addresses.setPrimary")}
                   </button>
                 ) : null}
                 {canManage ? (
@@ -194,7 +199,7 @@ export default function ClientAddresses({
                     type="button"
                     onClick={() => openEdit(address)}
                   >
-                    Edit
+                    {t("common.edit")}
                   </button>
                 ) : null}
                 {canManage ? (
@@ -203,7 +208,7 @@ export default function ClientAddresses({
                     type="button"
                     onClick={() => handleDelete(address)}
                   >
-                    Delete
+                    {t("common.delete")}
                   </button>
                 ) : null}
               </div>
@@ -214,13 +219,13 @@ export default function ClientAddresses({
 
       <Modal
         open={open}
-        title={editing ? "Edit address" : "Add address"}
+        title={editing ? t("clients.addresses.edit") : t("clients.addresses.add")}
         onClose={() => setOpen(false)}
       >
         <form className="form-grid" onSubmit={handleSubmit}>
           <div className="form-row">
             <div className="auth-field">
-              <label htmlFor="addressLabel">Label</label>
+              <label htmlFor="addressLabel">{t("clients.addresses.label")}</label>
               <input
                 id="addressLabel"
                 className="input"
@@ -233,7 +238,7 @@ export default function ClientAddresses({
           </div>
           <div className="form-row">
             <div className="auth-field">
-              <label htmlFor="addressText">Address</label>
+              <label htmlFor="addressText">{t("clients.addresses.address")}</label>
               <input
                 id="addressText"
                 className="input"
@@ -247,7 +252,7 @@ export default function ClientAddresses({
           </div>
           <div className="form-row two">
             <div className="auth-field">
-              <label htmlFor="addressEntrance">Entrance</label>
+              <label htmlFor="addressEntrance">{t("clients.addresses.entrance")}</label>
               <input
                 id="addressEntrance"
                 className="input"
@@ -258,7 +263,7 @@ export default function ClientAddresses({
               />
             </div>
             <div className="auth-field">
-              <label htmlFor="addressFloor">Floor</label>
+              <label htmlFor="addressFloor">{t("clients.addresses.floor")}</label>
               <input
                 id="addressFloor"
                 className="input"
@@ -271,7 +276,7 @@ export default function ClientAddresses({
           </div>
           <div className="form-row two">
             <div className="auth-field">
-              <label htmlFor="addressApartment">Apartment</label>
+              <label htmlFor="addressApartment">{t("clients.addresses.apartment")}</label>
               <input
                 id="addressApartment"
                 className="input"
@@ -282,7 +287,7 @@ export default function ClientAddresses({
               />
             </div>
             <div className="auth-field">
-              <label htmlFor="addressComment">Comment</label>
+              <label htmlFor="addressComment">{t("clients.addresses.comment")}</label>
               <input
                 id="addressComment"
                 className="input"
@@ -295,19 +300,18 @@ export default function ClientAddresses({
           </div>
           <div className="modal-actions">
             <button className="button" type="submit">
-              Save
+              {t("common.save")}
             </button>
             <button
               className="button ghost"
               type="button"
               onClick={() => setOpen(false)}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </form>
       </Modal>
-
     </section>
   );
 }

@@ -12,6 +12,8 @@ import { apiJson } from "../../../lib/api/client";
 import { normalizeRole } from "../../../lib/rbac";
 import { getClientAddresses } from "../../../lib/api/clientAddressesApi";
 import { getClientPromos } from "../../../lib/api/clientPromosApi";
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 const emptyMetrics = {
   ordersCount: 0,
@@ -21,6 +23,7 @@ const emptyMetrics = {
 };
 
 export default function ClientProfileClient({ clientId, initialClient }) {
+  const { locale, t } = useLocale();
   const [activeTab, setActiveTab] = useState("overview");
   const [client, setClient] = useState(initialClient);
   const [metrics, setMetrics] = useState(emptyMetrics);
@@ -141,11 +144,11 @@ export default function ClientProfileClient({ clientId, initialClient }) {
   }, [activeTab, orderFilters]);
 
   const handleEdit = async () => {
-    const name = window.prompt("Client name", client.name || "");
+    const name = window.prompt(t("clients.prompts.name"), client.name || "");
     if (name === null) {
       return;
     }
-    const phone = window.prompt("Phone", client.phone || "");
+    const phone = window.prompt(t("clients.prompts.phone"), client.phone || "");
     if (phone === null) {
       return;
     }
@@ -154,18 +157,18 @@ export default function ClientProfileClient({ clientId, initialClient }) {
       body: JSON.stringify({ name, phone })
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
     setClient(result.data);
-    setToast({ type: "success", message: "Client updated" });
+    setToast({ type: "success", message: t("clients.toasts.updated") });
   };
 
   const handleBlockToggle = async () => {
     const confirmText =
       client.status === "active"
-        ? "Block client?"
-        : "Unblock client?";
+        ? t("clients.actions.blockConfirm")
+        : t("clients.actions.unblockConfirm");
     if (!window.confirm(confirmText)) {
       return;
     }
@@ -176,11 +179,11 @@ export default function ClientProfileClient({ clientId, initialClient }) {
       })
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
     setClient(result.data);
-    setToast({ type: "success", message: "Status updated" });
+    setToast({ type: "success", message: t("clients.toasts.statusUpdated") });
   };
 
   const handleAddNote = async (text) => {
@@ -189,11 +192,11 @@ export default function ClientProfileClient({ clientId, initialClient }) {
       body: JSON.stringify({ text, author_tg_id: authorTgId })
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
     setNotes((prev) => [result.data, ...prev]);
-    setToast({ type: "success", message: "Note added" });
+    setToast({ type: "success", message: t("clients.toasts.noteAdded") });
   };
 
   const handleDeleteNote = async (noteId) => {
@@ -201,11 +204,11 @@ export default function ClientProfileClient({ clientId, initialClient }) {
       method: "DELETE"
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
     setNotes((prev) => prev.filter((note) => note.id !== noteId));
-    setToast({ type: "success", message: "Note deleted" });
+    setToast({ type: "success", message: t("clients.toasts.noteDeleted") });
   };
 
   const primaryAddress = useMemo(
@@ -223,15 +226,17 @@ export default function ClientProfileClient({ clientId, initialClient }) {
       />
       <div className="profile-header">
         <div>
-          <div className="profile-eyebrow">Client profile</div>
-          <h1>{client.name || client.phone || `Client #${client.id}`}</h1>
-          <div className="helper-text">ID: {client.id}</div>
+          <div className="profile-eyebrow">{t("clients.profile.eyebrow")}</div>
+          <h1>{client.name || client.phone || `${t("clients.profile.title")} #${client.id}`}</h1>
+          <div className="helper-text">
+            {t("clients.profile.idLabel")}: {client.id}
+          </div>
         </div>
         <div className="profile-role">
-          <span className="badge">{client.status}</span>
+          <span className="badge">{translateStatus(locale, client.status)}</span>
         </div>
       </div>
-      {error ? <div className="banner error">{error}</div> : null}
+      {error ? <div className="banner error">{t(error)}</div> : null}
       <ClientTabs active={activeTab} onChange={setActiveTab} />
       {activeTab === "overview" ? (
         <ClientOverview

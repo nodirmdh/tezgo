@@ -1,9 +1,11 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Toast from "../../components/Toast";
 import { apiJson } from "../../../lib/api/client";
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 const statusOptions = [
   "",
@@ -16,9 +18,9 @@ const statusOptions = [
 ];
 
 const sortOptions = [
-  { value: "created_at:desc", label: "Новые сначала" },
-  { value: "created_at:asc", label: "Старые сначала" },
-  { value: "severity:desc", label: "Problematic first" }
+  { value: "created_at:desc", labelKey: "orders.sort.newest" },
+  { value: "created_at:asc", labelKey: "orders.sort.oldest" },
+  { value: "severity:desc", labelKey: "orders.sort.problematic" }
 ];
 
 const formatMinutes = (value) => (value === null || value === undefined ? "-" : `${value}m`);
@@ -33,6 +35,7 @@ const renderSla = (summary) => {
 };
 
 export default function OrderListClient() {
+  const { locale, t } = useLocale();
   const [filters, setFilters] = useState({
     q: "",
     phone: "",
@@ -94,7 +97,7 @@ export default function OrderListClient() {
         <div className="toolbar-actions">
           <input
             className="input"
-            placeholder="Поиск по orderId"
+            placeholder={t("orders.filters.searchOrder")}
             value={filters.q}
             onChange={(event) =>
               setFilters({ ...filters, q: event.target.value, page: 1 })
@@ -102,7 +105,7 @@ export default function OrderListClient() {
           />
           <input
             className="input"
-            placeholder="Телефон клиента"
+            placeholder={t("orders.filters.phone")}
             value={filters.phone}
             onChange={(event) =>
               setFilters({ ...filters, phone: event.target.value, page: 1 })
@@ -115,18 +118,15 @@ export default function OrderListClient() {
               setFilters({ ...filters, status: event.target.value, page: 1 })
             }
           >
-            <option value="">Все статусы</option>
-            {statusOptions
-              .filter((item) => item)
-              .map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
+            {statusOptions.map((status) => (
+              <option key={status} value={status}>
+                {status ? translateStatus(locale, status) : t("orders.filters.allStatuses")}
+              </option>
+            ))}
           </select>
           <input
             className="input"
-            placeholder="Outlet ID"
+            placeholder={t("orders.filters.outletId")}
             value={filters.outlet_id}
             onChange={(event) =>
               setFilters({ ...filters, outlet_id: event.target.value, page: 1 })
@@ -134,7 +134,7 @@ export default function OrderListClient() {
           />
           <input
             className="input"
-            placeholder="Courier ID"
+            placeholder={t("orders.filters.courierId")}
             value={filters.courier_user_id}
             onChange={(event) =>
               setFilters({
@@ -169,7 +169,7 @@ export default function OrderListClient() {
           >
             {sortOptions.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {t(option.labelKey)}
               </option>
             ))}
           </select>
@@ -181,12 +181,12 @@ export default function OrderListClient() {
                 setFilters({ ...filters, problematic: event.target.checked, page: 1 })
               }
             />
-            Problematic
+            {t("orders.filters.problematic")}
           </label>
         </div>
       </div>
 
-      {error ? <div className="banner error">{error}</div> : null}
+      {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (
         <div className="form-grid">
           {[...Array(6)].map((_, index) => (
@@ -197,16 +197,16 @@ export default function OrderListClient() {
         <table className="table">
           <thead>
             <tr>
-              <th>Order ID</th>
-              <th>Дата</th>
-              <th>Ресторан</th>
-              <th>Сумма</th>
-              <th>Статус</th>
-              <th>Курьер</th>
-              <th>Телефон</th>
-              <th>SLA</th>
-              <th>Problems</th>
-              <th>Actions</th>
+              <th>{t("orders.table.orderId")}</th>
+              <th>{t("orders.table.date")}</th>
+              <th>{t("orders.table.restaurant")}</th>
+              <th>{t("orders.table.amount")}</th>
+              <th>{t("orders.table.status")}</th>
+              <th>{t("orders.table.courier")}</th>
+              <th>{t("orders.table.phone")}</th>
+              <th>{t("orders.table.sla")}</th>
+              <th>{t("orders.table.problems")}</th>
+              <th>{t("orders.table.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -215,9 +215,13 @@ export default function OrderListClient() {
                 <td>{order.order_number}</td>
                 <td>{order.created_at}</td>
                 <td>{order.outlet_name || "-"}</td>
-                <td>{order.total_amount ? `${order.total_amount} сум` : "-"}</td>
                 <td>
-                  <span className="badge">{order.status}</span>
+                  {order.total_amount
+                    ? `${order.total_amount} ${t("currency.sum")}`
+                    : "-"}
+                </td>
+                <td>
+                  <span className="badge">{translateStatus(locale, order.status)}</span>
                 </td>
                 <td>{order.courier_user_id ?? "-"}</td>
                 <td>{order.client_phone || "-"}</td>
@@ -229,15 +233,18 @@ export default function OrderListClient() {
                       href={`/orders/${order.id}?tab=timeline`}
                       title={order.primaryProblemTitle || ""}
                     >
-                      {order.overallSeverity} ({order.problemsCount})
+                      {t(`orders.severity.${order.overallSeverity}`, {
+                        defaultValue: order.overallSeverity
+                      })}{" "}
+                      ({order.problemsCount})
                     </Link>
                   ) : (
-                    <span className="badge">ok</span>
+                    <span className="badge">{t("orders.table.ok")}</span>
                   )}
                 </td>
                 <td>
                   <Link className="action-link" href={`/orders/${order.id}`}>
-                    View
+                    {t("common.view")}
                   </Link>
                 </td>
               </tr>
@@ -254,10 +261,10 @@ export default function OrderListClient() {
             setFilters({ ...filters, page: Math.max(1, filters.page - 1) })
           }
         >
-          Назад
+          {t("common.back")}
         </button>
         <div className="helper-text">
-          Страница {filters.page} из {totalPages}
+          {t("common.page", { page: filters.page, total: totalPages })}
         </div>
         <button
           className="button"
@@ -270,7 +277,7 @@ export default function OrderListClient() {
             })
           }
         >
-          Вперёд
+          {t("common.next")}
         </button>
       </div>
     </section>

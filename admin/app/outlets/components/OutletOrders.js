@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 const statusOptions = [
   "",
@@ -20,16 +22,17 @@ export default function OutletOrders({
   onFilterChange,
   onPageChange
 }) {
+  const { locale, t } = useLocale();
   const totalPages = Math.max(1, Math.ceil((data.total || 0) / (data.limit || 10)));
 
   return (
     <section className="card profile-card">
-      <div className="profile-title">Orders</div>
+      <div className="profile-title">{t("tabs.orders")}</div>
       <div className="toolbar">
         <div className="toolbar-actions">
           <input
             className="input"
-            placeholder="Search by orderId"
+            placeholder={t("orders.filters.searchOrder")}
             value={filters.q}
             onChange={(event) =>
               onFilterChange({ ...filters, q: event.target.value, page: 1 })
@@ -46,34 +49,31 @@ export default function OutletOrders({
               })
             }
           >
-            <option value="">All statuses</option>
-            {statusOptions
-              .filter((item) => item)
-              .map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
+            {statusOptions.map((status) => (
+              <option key={status} value={status}>
+                {status ? translateStatus(locale, status) : t("orders.filters.allStatuses")}
+              </option>
+            ))}
           </select>
         </div>
       </div>
 
-      {error ? <div className="banner error">{error}</div> : null}
+      {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (
         <div className="skeleton-block" />
       ) : data.items.length === 0 ? (
-        <div className="empty-state">No data yet</div>
+        <div className="empty-state">{t("dashboard.noData")}</div>
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>Order ID</th>
-              <th>Date</th>
-              <th>Client</th>
-              <th>Amount</th>
-              <th>Status</th>
-              <th>Address</th>
-              <th>Actions</th>
+              <th>{t("orders.table.orderId")}</th>
+              <th>{t("orders.table.date")}</th>
+              <th>{t("orders.table.client")}</th>
+              <th>{t("orders.table.amount")}</th>
+              <th>{t("orders.table.status")}</th>
+              <th>{t("orders.overview.address")}</th>
+              <th>{t("orders.table.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -82,14 +82,18 @@ export default function OutletOrders({
                 <td>{order.order_number}</td>
                 <td>{order.created_at}</td>
                 <td>{order.client_phone || order.client_name || "-"}</td>
-                <td>{order.total_amount ? `${order.total_amount} sum` : "-"}</td>
                 <td>
-                  <span className="badge">{order.status}</span>
+                  {order.total_amount
+                    ? `${order.total_amount} ${t("currency.sum")}`
+                    : "-"}
+                </td>
+                <td>
+                  <span className="badge">{translateStatus(locale, order.status)}</span>
                 </td>
                 <td>{order.delivery_address || "-"}</td>
                 <td>
                   <Link className="action-link" href={`/orders/${order.id}`}>
-                    Open order
+                    {t("orders.actions.open")}
                   </Link>
                 </td>
               </tr>
@@ -104,10 +108,10 @@ export default function OutletOrders({
           disabled={filters.page <= 1}
           onClick={() => onPageChange(Math.max(1, filters.page - 1))}
         >
-          Back
+          {t("common.back")}
         </button>
         <div className="helper-text">
-          Page {filters.page} of {totalPages}
+          {t("common.page", { page: filters.page, total: totalPages })}
         </div>
         <button
           className="button"
@@ -115,7 +119,7 @@ export default function OutletOrders({
           disabled={filters.page >= totalPages}
           onClick={() => onPageChange(Math.min(totalPages, filters.page + 1))}
         >
-          Next
+          {t("common.next")}
         </button>
       </div>
     </section>

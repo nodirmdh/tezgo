@@ -4,7 +4,10 @@ import PromoListClient from "./components/PromoListClient";
 export default function PromosPage() {
   return (
     <main>
-      <PageHeader title="Promos" description="Promos and usage overview." />
+      <PageHeader
+        titleKey="pages.promos.title"
+        descriptionKey="pages.promos.description"
+      />
       <PromoListClient />
     </main>
   );

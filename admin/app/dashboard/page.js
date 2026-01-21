@@ -4,7 +4,10 @@ import DashboardClient from "./components/DashboardClient";
 export default function DashboardPage() {
   return (
     <main>
-      <PageHeader title="Dashboard" description="Operational overview." />
+      <PageHeader
+        titleKey="dashboard.title"
+        descriptionKey="dashboard.description"
+      />
       <DashboardClient />
     </main>
   );

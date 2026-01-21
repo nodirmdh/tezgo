@@ -18,7 +18,7 @@ const mockClient = (id) => {
   if (found) {
     return found;
   }
-  return { id: parsedId, name: "Клиент", phone: "-", status: "active" };
+  return { id: parsedId, name: "Client", phone: "-", status: "active" };
 };
 
 export const getClientProfile = async (id) => {

@@ -29,9 +29,9 @@ const mockFinance = () => ({
   role: "client",
   balance: 0,
   summary: [
-    { label: "Платежи", value: 0 },
-    { label: "Возвраты", value: 0 },
-    { label: "Промокоды", value: 0 }
+    { type: "payments", value: 0 },
+    { type: "refunds", value: 0 },
+    { type: "promos", value: 0 }
   ],
   transactions: financeTransactions.map((item) => ({
     ...item,

@@ -4,8 +4,10 @@ import { useState } from "react";
 import Toast from "../../components/Toast";
 import { apiJson } from "../../../lib/api/client";
 import PromoOverview from "./PromoOverview";
+import { useLocale } from "../../components/LocaleProvider";
 
 export default function PromoProfileClient({ promoId, initialPromo }) {
+  const { t } = useLocale();
   const [promo, setPromo] = useState(initialPromo);
   const [toast, setToast] = useState(null);
 
@@ -15,11 +17,11 @@ export default function PromoProfileClient({ promoId, initialPromo }) {
       body: JSON.stringify(payload)
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
     setPromo(result.data);
-    setToast({ type: "success", message: "Promo updated" });
+    setToast({ type: "success", message: t("promos.toasts.updated") });
   };
 
   return (
@@ -31,13 +33,15 @@ export default function PromoProfileClient({ promoId, initialPromo }) {
       />
       <div className="profile-header">
         <div>
-          <div className="profile-eyebrow">Promo profile</div>
+          <div className="profile-eyebrow">{t("promos.profile.eyebrow")}</div>
           <h1>{promo.code}</h1>
-          <div className="helper-text">ID: {promo.id}</div>
+          <div className="helper-text">
+            {t("promos.profile.idLabel")}: {promo.id}
+          </div>
         </div>
         <div className="profile-role">
           <span className="badge">
-            {promo.is_active ? "active" : "inactive"}
+            {promo.is_active ? t("promos.status.active") : t("promos.status.inactive")}
           </span>
         </div>
       </div>

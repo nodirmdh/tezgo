@@ -9,10 +9,13 @@ import CourierOverview from "./CourierOverview";
 import CourierOrders from "./CourierOrders";
 import CourierFinance from "./CourierFinance";
 import CourierNotes from "./CourierNotes";
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 const emptyOrders = { items: [], page: 1, limit: 10, total: 0 };
 
 export default function CourierProfileClient({ courierId, initialCourier }) {
+  const { locale, t } = useLocale();
   const [courier, setCourier] = useState(initialCourier);
   const [activeTab, setActiveTab] = useState("overview");
   const [toast, setToast] = useState(null);
@@ -43,7 +46,7 @@ export default function CourierProfileClient({ courierId, initialCourier }) {
   const reloadCourier = async () => {
     const result = await apiJson(`/api/couriers/${courierId}`);
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
     setCourier(result.data);
@@ -131,10 +134,23 @@ export default function CourierProfileClient({ courierId, initialCourier }) {
       body: JSON.stringify({ status: nextStatus })
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Статус обновлён" });
+    setToast({ type: "success", message: t("couriers.toasts.statusUpdated") });
+    reloadCourier();
+  };
+
+  const handleSaveProfile = async (payload) => {
+    const result = await apiJson(`/api/couriers/${courierId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    if (!result.ok) {
+      setToast({ type: "error", message: t(result.error) });
+      return;
+    }
+    setToast({ type: "success", message: t("couriers.toasts.updated") });
     reloadCourier();
   };
 
@@ -144,10 +160,10 @@ export default function CourierProfileClient({ courierId, initialCourier }) {
       body: JSON.stringify({ text })
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Заметка добавлена" });
+    setToast({ type: "success", message: t("couriers.toasts.noteAdded") });
     loadNotes();
   };
 
@@ -156,10 +172,10 @@ export default function CourierProfileClient({ courierId, initialCourier }) {
       method: "DELETE"
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Заметка удалена" });
+    setToast({ type: "success", message: t("couriers.toasts.noteDeleted") });
     loadNotes();
   };
 
@@ -179,15 +195,19 @@ export default function CourierProfileClient({ courierId, initialCourier }) {
       />
       <div className="profile-header">
         <div>
-          <div className="profile-eyebrow">Courier profile</div>
-          <h1>{courier.username || courier.tg_id || `Courier #${courier.id}`}</h1>
-          <div className="helper-text">ID: {courier.id}</div>
+          <div className="profile-eyebrow">{t("couriers.profile.eyebrow")}</div>
+          <h1>{courier.username || courier.tg_id || `${t("couriers.profile.title")} #${courier.id}`}</h1>
+          <div className="helper-text">
+            {t("couriers.profile.idLabel")}: {courier.id}
+          </div>
         </div>
         <div className="profile-role">
           <span className="badge">
-            {courier.is_active ? "online" : "offline"}
+            {courier.is_active ? t("couriers.status.online") : t("couriers.status.offline")}
           </span>
-          <span className="badge">{courier.user_status || "active"}</span>
+          <span className="badge">
+            {translateStatus(locale, courier.user_status || "active")}
+          </span>
         </div>
       </div>
 
@@ -198,6 +218,7 @@ export default function CourierProfileClient({ courierId, initialCourier }) {
           courier={courier}
           role={role}
           onBlockToggle={handleBlockToggle}
+          onSave={handleSaveProfile}
         />
       ) : null}
       {activeTab === "orders" ? (

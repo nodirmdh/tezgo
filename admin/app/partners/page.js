@@ -4,7 +4,10 @@ import PartnerListClient from "./components/PartnerListClient";
 export default function PartnersPage() {
   return (
     <main>
-      <PageHeader title="Partners" description="Partners and outlets overview." />
+      <PageHeader
+        titleKey="pages.partners.title"
+        descriptionKey="pages.partners.description"
+      />
       <PartnerListClient />
     </main>
   );

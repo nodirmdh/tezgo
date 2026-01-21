@@ -5,14 +5,11 @@ import Link from "next/link";
 import Toast from "../../components/Toast";
 import useConfirm from "../../components/useConfirm";
 import { apiJson } from "../../../lib/api/client";
-
-const statusOptions = [
-  { value: "", label: "All statuses" },
-  { value: "active", label: "active" },
-  { value: "blocked", label: "blocked" }
-];
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 export default function PartnerListClient() {
+  const { locale, t } = useLocale();
   const [filters, setFilters] = useState({ q: "", status: "", page: 1, limit: 10 });
   const [data, setData] = useState({ items: [], page: 1, limit: 10, total: 0 });
   const [loading, setLoading] = useState(true);
@@ -52,18 +49,21 @@ export default function PartnerListClient() {
   const handleBlockToggle = async (partner) => {
     const nextStatus = partner.status === "blocked" ? "active" : "blocked";
     confirm({
-      title: nextStatus === "blocked" ? "Block partner?" : "Unblock partner?",
-      description: "Status will be updated immediately after confirmation.",
+      title:
+        nextStatus === "blocked"
+          ? t("partners.actions.blockConfirm")
+          : t("partners.actions.unblockConfirm"),
+      description: t("partners.actions.confirmDescription"),
       onConfirm: async () => {
         const result = await apiJson(`/api/partners/${partner.id}`, {
           method: "PATCH",
           body: JSON.stringify({ status: nextStatus })
         });
         if (!result.ok) {
-          setToast({ type: "error", message: result.error });
+          setToast({ type: "error", message: t(result.error) });
           return;
         }
-        setToast({ type: "success", message: "Status updated" });
+        setToast({ type: "success", message: t("partners.toasts.statusUpdated") });
         fetchPartners();
       }
     });
@@ -81,7 +81,7 @@ export default function PartnerListClient() {
         <div className="toolbar-actions">
           <input
             className="input"
-            placeholder="Search partner"
+            placeholder={t("partners.searchPlaceholder")}
             value={filters.q}
             onChange={(event) =>
               setFilters({ ...filters, q: event.target.value, page: 1 })
@@ -94,16 +94,17 @@ export default function PartnerListClient() {
               setFilters({ ...filters, status: event.target.value, page: 1 })
             }
           >
-            {statusOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+            <option value="">{t("partners.allStatuses")}</option>
+            {["active", "blocked"].map((status) => (
+              <option key={status} value={status}>
+                {translateStatus(locale, status)}
               </option>
             ))}
           </select>
         </div>
       </div>
 
-      {error ? <div className="banner error">{error}</div> : null}
+      {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (
         <div className="form-grid">
           {[...Array(6)].map((_, index) => (
@@ -114,11 +115,11 @@ export default function PartnerListClient() {
         <table className="table">
           <thead>
             <tr>
-              <th>Partner</th>
-              <th>Status</th>
-              <th>Outlets</th>
-              <th>Manager</th>
-              <th>Actions</th>
+              <th>{t("partners.table.partner")}</th>
+              <th>{t("partners.table.status")}</th>
+              <th>{t("partners.table.outlets")}</th>
+              <th>{t("partners.table.manager")}</th>
+              <th>{t("common.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -126,21 +127,23 @@ export default function PartnerListClient() {
               <tr key={partner.id}>
                 <td>{partner.name}</td>
                 <td>
-                  <span className="badge">{partner.status || "active"}</span>
+                  <span className="badge">{translateStatus(locale, partner.status || "active")}</span>
                 </td>
                 <td>{partner.outlets_count}</td>
                 <td>{partner.manager || "-"}</td>
                 <td>
                   <div className="table-actions">
                     <Link className="action-link" href={`/partners/${partner.id}`}>
-                      View
+                      {t("common.view")}
                     </Link>
                     <button
                       className="action-link"
                       type="button"
                       onClick={() => handleBlockToggle(partner)}
                     >
-                      {partner.status === "blocked" ? "Unblock" : "Block"}
+                      {partner.status === "blocked"
+                        ? t("partners.actions.unblock")
+                        : t("partners.actions.block")}
                     </button>
                   </div>
                 </td>
@@ -158,10 +161,10 @@ export default function PartnerListClient() {
             setFilters({ ...filters, page: Math.max(1, filters.page - 1) })
           }
         >
-          Back
+          {t("common.back")}
         </button>
         <div className="helper-text">
-          Page {filters.page} of {totalPages}
+          {t("common.page", { page: filters.page, total: totalPages })}
         </div>
         <button
           className="button"
@@ -174,7 +177,7 @@ export default function PartnerListClient() {
             })
           }
         >
-          Next
+          {t("common.next")}
         </button>
       </div>
     </section>

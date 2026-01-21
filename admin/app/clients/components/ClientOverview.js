@@ -1,5 +1,8 @@
 "use client";
 
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
+
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : "-");
 
 export default function ClientOverview({
@@ -13,24 +16,25 @@ export default function ClientOverview({
   onManageAddresses,
   onViewPromos
 }) {
+  const { locale, t } = useLocale();
   return (
     <div className="profile-grid">
       <section className="card profile-card">
-        <div className="profile-title">Client details</div>
+        <div className="profile-title">{t("clients.overview.details")}</div>
         <div className="profile-row">
-          <span className="muted">Name</span>
+          <span className="muted">{t("clients.fields.name")}</span>
           <span>{client.name || "-"}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">Phone</span>
+          <span className="muted">{t("clients.fields.phone")}</span>
           <span>{client.phone || "-"}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">Status</span>
-          <span>{client.status || "-"}</span>
+          <span className="muted">{t("clients.fields.status")}</span>
+          <span>{translateStatus(locale, client.status || "-")}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">User ID</span>
+          <span className="muted">{t("clients.fields.userId")}</span>
           <span>{client.id}</span>
         </div>
         <div className="profile-row">
@@ -42,69 +46,73 @@ export default function ClientOverview({
           <span>{client.username || "-"}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">Created</span>
+          <span className="muted">{t("clients.fields.createdAt")}</span>
           <span>{formatDate(client.created_at)}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">Updated</span>
+          <span className="muted">{t("clients.fields.updatedAt")}</span>
           <span>{formatDate(client.updated_at)}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">Last order</span>
+          <span className="muted">{t("clients.fields.lastOrder")}</span>
           <span>{formatDate(metrics.lastOrderAt)}</span>
         </div>
       </section>
 
       <section className="card profile-card">
-        <div className="profile-title">Metrics</div>
+        <div className="profile-title">{t("clients.overview.metrics")}</div>
         {loading ? (
           <div className="skeleton-block" />
         ) : (
           <div className="cards compact">
             <div className="card">
-              <div className="helper-text">Orders</div>
+              <div className="helper-text">{t("clients.metrics.orders")}</div>
               <div className="card-value">{metrics.ordersCount}</div>
             </div>
             <div className="card">
-              <div className="helper-text">Total spent</div>
-              <div className="card-value">{metrics.totalSpent} sum</div>
+              <div className="helper-text">{t("clients.metrics.totalSpent")}</div>
+              <div className="card-value">
+                {metrics.totalSpent} {t("currency.sum")}
+              </div>
             </div>
             <div className="card">
-              <div className="helper-text">Avg check</div>
-              <div className="card-value">{metrics.avgCheck} sum</div>
+              <div className="helper-text">{t("clients.metrics.avgCheck")}</div>
+              <div className="card-value">
+                {metrics.avgCheck} {t("currency.sum")}
+              </div>
             </div>
           </div>
         )}
       </section>
 
       <section className="card profile-card">
-        <div className="profile-title">Support tools</div>
+        <div className="profile-title">{t("clients.overview.support")}</div>
         <div className="profile-row">
-          <span className="muted">Primary address</span>
+          <span className="muted">{t("clients.overview.primaryAddress")}</span>
           <span>{primaryAddress?.address_text || "-"}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">Last promo</span>
+          <span className="muted">{t("clients.overview.lastPromo")}</span>
           <span>{lastPromo ? `${lastPromo.code} (${lastPromo.status})` : "-"}</span>
         </div>
         <div className="table-actions">
           <button className="action-link" type="button" onClick={onManageAddresses}>
-            Manage addresses
+            {t("clients.overview.manageAddresses")}
           </button>
           <button className="action-link" type="button" onClick={onViewPromos}>
-            View promos
+            {t("clients.overview.viewPromos")}
           </button>
         </div>
       </section>
 
       <section className="card profile-card">
-        <div className="profile-title">Actions</div>
+        <div className="profile-title">{t("common.actions")}</div>
         <div className="action-grid">
           <button className="button" type="button" onClick={onEdit}>
-            Edit
+            {t("common.edit")}
           </button>
           <button className="button" type="button" onClick={onBlockToggle}>
-            {client.status === "active" ? "Block" : "Unblock"}
+            {client.status === "active" ? t("clients.actions.block") : t("clients.actions.unblock")}
           </button>
         </div>
       </section>

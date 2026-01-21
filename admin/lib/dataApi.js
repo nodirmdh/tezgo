@@ -16,16 +16,6 @@ const API_BASE_URL =
 
 const delay = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const statusLabels = {
-  accepted_by_system: "Принят системой",
-  accepted_by_restaurant: "Принят рестораном",
-  ready_for_pickup: "Готов к выдаче",
-  picked_up: "Курьер забрал",
-  delivered: "Доставил"
-};
-
-const formatStatus = (status) => statusLabels[status] ?? status ?? "-";
-
 const safeFetch = async (path) => {
   if (!API_BASE_URL) {
     return null;
@@ -94,7 +84,7 @@ const toOrder = (order, outletName, courierName) => ({
   order_number: order.order_number,
   outlet: outletName ?? "-",
   courier: courierName ?? "-",
-  status: formatStatus(order.status),
+  status: order.status ?? "-",
   status_raw: order.status,
   pickup_code_plain: order.pickup_code_plain ?? null
 });
@@ -122,13 +112,13 @@ export async function getDashboardSummary() {
   );
 
   const cards = [
-    { title: "Заказы сегодня", value: String(orders.length) },
+    { titleKey: "dashboard.cards.ordersToday", value: String(orders.length) },
     {
-      title: "Активные курьеры",
+      titleKey: "dashboard.cards.activeCouriers",
       value: String(couriers.filter((courier) => courier.is_active).length)
     },
-    { title: "Новые клиенты", value: String(users.length) },
-    { title: "Сервисный сбор", value: "—" }
+    { titleKey: "dashboard.cards.newClients", value: String(users.length) },
+    { titleKey: "dashboard.cards.serviceFee", value: "-" }
   ];
 
   return { cards, recentOrders: recent };
@@ -221,13 +211,13 @@ export async function getFinance(filters) {
 
   const summaryView = summary.map((item) => ({
     type: item.type,
-    amount: `${item.amount} сум`
+    amount: item.amount
   }));
 
   const transactions = ledger.map((item) => ({
     id: item.id,
     title: item.title,
-    amount: `${item.amount} сум`,
+    amount: item.amount,
     status: item.status
   }));
 

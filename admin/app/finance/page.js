@@ -4,7 +4,10 @@ import FinanceDashboardClient from "./components/FinanceDashboardClient";
 export default function FinancePage() {
   return (
     <main>
-      <PageHeader title="Finance" description="Read-only financial overview." />
+      <PageHeader
+        titleKey="pages.finance.title"
+        descriptionKey="pages.finance.description"
+      />
       <FinanceDashboardClient />
     </main>
   );

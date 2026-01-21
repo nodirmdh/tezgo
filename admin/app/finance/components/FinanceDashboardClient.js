@@ -3,24 +3,22 @@
 import { useEffect, useMemo, useState } from "react";
 import Toast from "../../components/Toast";
 import { apiJson } from "../../../lib/api/client";
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
-const statusOptions = [
-  { value: "", label: "All statuses" },
-  { value: "pending", label: "pending" },
-  { value: "completed", label: "completed" }
-];
-
+const statusOptions = ["", "pending", "completed"];
 const typeOptions = [
-  { value: "", label: "All types" },
-  { value: "commission", label: "commission" },
-  { value: "courier_payout", label: "courier_payout" },
-  { value: "penalty", label: "penalty" },
-  { value: "payment", label: "payment" },
-  { value: "refund", label: "refund" },
-  { value: "bonus", label: "bonus" }
+  "",
+  "commission",
+  "courier_payout",
+  "penalty",
+  "payment",
+  "refund",
+  "bonus"
 ];
 
 export default function FinanceDashboardClient() {
+  const { locale, t } = useLocale();
   const [filters, setFilters] = useState({
     q: "",
     status: "",
@@ -76,7 +74,7 @@ export default function FinanceDashboardClient() {
 
   const handleExport = () => {
     if (!transactions.length) {
-      setToast({ type: "error", message: "No data to export" });
+      setToast({ type: "error", message: t("finance.noExport") });
       return;
     }
     const headers = [
@@ -116,7 +114,7 @@ export default function FinanceDashboardClient() {
         <div className="toolbar-actions">
           <input
             className="input"
-            placeholder="Search by title"
+            placeholder={t("finance.searchTitle")}
             value={filters.q}
             onChange={(event) =>
               setFilters({ ...filters, q: event.target.value })
@@ -130,8 +128,8 @@ export default function FinanceDashboardClient() {
             }
           >
             {statusOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+              <option key={option} value={option}>
+                {option ? translateStatus(locale, option) : t("finance.allStatuses")}
               </option>
             ))}
           </select>
@@ -143,14 +141,14 @@ export default function FinanceDashboardClient() {
             }
           >
             {typeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+              <option key={option} value={option}>
+                {option ? t(`finance.types.${option}`) : t("finance.allTypes")}
               </option>
             ))}
           </select>
           <input
             className="input"
-            placeholder="Outlet ID"
+            placeholder={t("finance.outletId")}
             value={filters.outlet_id}
             onChange={(event) =>
               setFilters({ ...filters, outlet_id: event.target.value })
@@ -158,7 +156,7 @@ export default function FinanceDashboardClient() {
           />
           <input
             className="input"
-            placeholder="Partner ID"
+            placeholder={t("finance.partnerId")}
             value={filters.partner_id}
             onChange={(event) =>
               setFilters({ ...filters, partner_id: event.target.value })
@@ -181,12 +179,12 @@ export default function FinanceDashboardClient() {
             }
           />
           <button className="button" type="button" onClick={handleExport}>
-            Export CSV
+            {t("finance.export")}
           </button>
         </div>
       </div>
 
-      {error ? <div className="banner error">{error}</div> : null}
+      {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (
         <div className="form-grid">
           {[...Array(6)].map((_, index) => (
@@ -197,14 +195,18 @@ export default function FinanceDashboardClient() {
         <>
           <div className="cards">
             <div className="card">
-              <div style={{ color: "#64748B", fontSize: "13px" }}>Total</div>
+              <div style={{ color: "#64748B", fontSize: "13px" }}>
+                {t("finance.total")}
+              </div>
               <div style={{ fontSize: "18px", fontWeight: 600, marginTop: "6px" }}>
                 {totalAmount}
               </div>
             </div>
             {summary.map((item) => (
               <div key={item.type} className="card">
-                <div style={{ color: "#64748B", fontSize: "13px" }}>{item.type}</div>
+                <div style={{ color: "#64748B", fontSize: "13px" }}>
+                  {t(`finance.types.${item.type}`, { defaultValue: item.type })}
+                </div>
                 <div style={{ fontSize: "18px", fontWeight: 600, marginTop: "6px" }}>
                   {item.amount}
                 </div>
@@ -213,19 +215,19 @@ export default function FinanceDashboardClient() {
           </div>
 
           {transactions.length === 0 ? (
-            <div className="empty-state">No data yet</div>
+            <div className="empty-state">{t("finance.noData")}</div>
           ) : (
             <table className="table">
               <thead>
                 <tr>
-                  <th>Title</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                  <th>Type</th>
-                  <th>Order</th>
-                  <th>Outlet</th>
-                  <th>Partner</th>
-                  <th>Date</th>
+                  <th>{t("finance.table.title")}</th>
+                  <th>{t("finance.table.amount")}</th>
+                  <th>{t("finance.table.status")}</th>
+                  <th>{t("finance.table.type")}</th>
+                  <th>{t("finance.table.order")}</th>
+                  <th>{t("finance.table.outlet")}</th>
+                  <th>{t("finance.table.partner")}</th>
+                  <th>{t("finance.table.date")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -234,9 +236,11 @@ export default function FinanceDashboardClient() {
                     <td>{row.title}</td>
                     <td>{row.amount}</td>
                     <td>
-                      <span className="badge">{row.status}</span>
+                      <span className="badge">
+                        {translateStatus(locale, row.status)}
+                      </span>
                     </td>
-                    <td>{row.type}</td>
+                    <td>{t(`finance.types.${row.type}`, { defaultValue: row.type })}</td>
                     <td>{row.order_number || "-"}</td>
                     <td>{row.outlet_name || "-"}</td>
                     <td>{row.partner_name || "-"}</td>

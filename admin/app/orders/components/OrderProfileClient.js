@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -8,8 +8,11 @@ import OrderTabs from "./OrderTabs";
 import OrderOverview from "./OrderOverview";
 import OrderTimeline from "./OrderTimeline";
 import OrderSupport from "./OrderSupport";
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 export default function OrderProfileClient({ orderId, initialOrder }) {
+  const { locale, t } = useLocale();
   const searchParams = useSearchParams();
   const [order, setOrder] = useState(initialOrder);
   const [events, setEvents] = useState([]);
@@ -52,21 +55,37 @@ export default function OrderProfileClient({ orderId, initialOrder }) {
     }
   }, [activeTab]);
 
+  const handleOrderUpdated = (update) => {
+    if (!update) {
+      return;
+    }
+    setOrder((current) => ({
+      ...current,
+      items: update.items ?? current.items,
+      subtotal_food: update.subtotal_food ?? current.subtotal_food,
+      total_amount: update.total_amount ?? current.total_amount
+    }));
+  };
+
   return (
     <div className="profile-wrapper">
-      <Toast message={error} type="error" onClose={() => setError(null)} />
+      <Toast message={error ? t(error) : null} type="error" onClose={() => setError(null)} />
       <div className="profile-header">
         <div>
-          <div className="profile-eyebrow">Order profile</div>
+          <div className="profile-eyebrow">{t("orders.profile.eyebrow")}</div>
           <h1>{order.order_number}</h1>
-          <div className="helper-text">ID: {order.id}</div>
+          <div className="helper-text">
+            {t("orders.profile.idLabel")}: {order.id}
+          </div>
         </div>
         <div className="profile-role">
-          <span className="badge">{order.status}</span>
+          <span className="badge">{translateStatus(locale, order.status)}</span>
         </div>
       </div>
       <OrderTabs active={activeTab} onChange={setActiveTab} />
-      {activeTab === "overview" ? <OrderOverview order={order} /> : null}
+      {activeTab === "overview" ? (
+        <OrderOverview order={order} role={role} onOrderUpdated={handleOrderUpdated} />
+      ) : null}
       {activeTab === "timeline" ? (
         <OrderTimeline
           order={order}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { normalizeRole } from "../../../lib/rbac";
+import { useLocale } from "../../components/LocaleProvider";
 
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : "-");
 
@@ -14,13 +15,14 @@ export default function ClientNotes({
   onAdd,
   onDelete
 }) {
+  const { t } = useLocale();
   const [text, setText] = useState("");
   const normalizedRole = normalizeRole(role);
 
   return (
     <section className="card profile-card">
-      <div className="profile-title">Notes</div>
-      {error ? <div className="banner error">{error}</div> : null}
+      <div className="profile-title">{t("clients.notes.title")}</div>
+      {error ? <div className="banner error">{t(error)}</div> : null}
       <form
         className="form-grid"
         onSubmit={(event) => {
@@ -33,25 +35,25 @@ export default function ClientNotes({
         }}
       >
         <div className="auth-field">
-          <label htmlFor="noteText">Note</label>
+          <label htmlFor="noteText">{t("clients.notes.note")}</label>
           <textarea
             id="noteText"
             className="input"
             rows={3}
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder="Add a note..."
+            placeholder={t("clients.notes.placeholder")}
           />
         </div>
         <button className="button" type="submit">
-          Add
+          {t("common.add")}
         </button>
       </form>
 
       {loading ? (
         <div className="skeleton-block" />
       ) : notes.length === 0 ? (
-        <div className="empty-state">No data yet</div>
+        <div className="empty-state">{t("dashboard.noData")}</div>
       ) : (
         <ul className="log-list">
           {notes.map((note) => {
@@ -62,7 +64,7 @@ export default function ClientNotes({
               <li key={note.id} className="log-item">
                 <div>
                   <div className="log-title">
-                    {note.author_username || note.author_tg_id || "support"}
+                    {note.author_username || note.author_tg_id || t("clients.notes.support")}
                   </div>
                   <div className="helper-text">{note.text}</div>
                 </div>
@@ -73,7 +75,7 @@ export default function ClientNotes({
                     type="button"
                     onClick={() => onDelete(note.id)}
                   >
-                    Delete
+                    {t("common.delete")}
                   </button>
                 ) : null}
               </li>

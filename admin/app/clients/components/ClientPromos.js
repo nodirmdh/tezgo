@@ -8,6 +8,7 @@ import {
   issueClientPromo,
   revokeClientPromo
 } from "../../../lib/api/clientPromosApi";
+import { useLocale } from "../../components/LocaleProvider";
 
 const emptyForm = {
   type: "percent",
@@ -26,7 +27,7 @@ const Modal = ({ open, title, onClose, children }) => {
         <div className="modal-header">
           <div className="modal-title">{title}</div>
           <button className="modal-close" type="button" onClick={onClose}>
-            ×
+            x
           </button>
         </div>
         {children}
@@ -45,6 +46,7 @@ export default function ClientPromos({
   role,
   onReload
 }) {
+  const { t } = useLocale();
   const [toast, setToast] = useState(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -52,15 +54,14 @@ export default function ClientPromos({
 
   const canManage = ["admin", "support"].includes(normalizeRole(role));
 
-
   const handleIssue = async (event) => {
     event.preventDefault();
     if (!form.reason.trim()) {
-      setToast({ type: "error", message: "Reason is required" });
+      setToast({ type: "error", message: t("clients.promos.reasonRequired") });
       return;
     }
     if (!form.value) {
-      setToast({ type: "error", message: "Value is required" });
+      setToast({ type: "error", message: t("clients.promos.valueRequired") });
       return;
     }
     const payload = {
@@ -74,10 +75,13 @@ export default function ClientPromos({
     };
     const result = await issueClientPromo(clientId, payload);
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: `Promo issued: ${result.data.code}` });
+    setToast({
+      type: "success",
+      message: t("clients.promos.issued", { code: result.data.code })
+    });
     setForm(emptyForm);
     setOpen(false);
     onReload();
@@ -85,20 +89,20 @@ export default function ClientPromos({
 
   const handleCopy = (code) => {
     navigator.clipboard.writeText(code);
-    setToast({ type: "success", message: "Code copied" });
+    setToast({ type: "success", message: t("clients.promos.copied") });
   };
 
   const handleRevoke = (promo) => {
     confirm({
-      title: "Revoke promo?",
-      description: "Promo will be revoked immediately.",
+      title: t("clients.promos.revokeTitle"),
+      description: t("clients.promos.revokeDescription"),
       onConfirm: async () => {
         const result = await revokeClientPromo(clientId, promo.id);
         if (!result.ok) {
-          setToast({ type: "error", message: result.error });
+          setToast({ type: "error", message: t(result.error) });
           return;
         }
-        setToast({ type: "success", message: "Promo revoked" });
+        setToast({ type: "success", message: t("clients.promos.revoked") });
         onReload();
       }
     });
@@ -112,13 +116,13 @@ export default function ClientPromos({
         onClose={() => setToast(null)}
       />
       {dialog}
-      <div className="profile-title">Promos</div>
-      {error ? <div className="banner error">{error}</div> : null}
+      <div className="profile-title">{t("clients.promos.title")}</div>
+      {error ? <div className="banner error">{t(error)}</div> : null}
       <div className="toolbar">
         <div className="toolbar-actions">
           {canManage ? (
             <button className="button" type="button" onClick={() => setOpen(true)}>
-              Issue promo
+              {t("clients.promos.issue")}
             </button>
           ) : null}
         </div>
@@ -127,20 +131,20 @@ export default function ClientPromos({
       {loading ? (
         <div className="skeleton-block" />
       ) : promos.length === 0 ? (
-        <div className="empty-state">No promos issued yet</div>
+        <div className="empty-state">{t("clients.promos.none")}</div>
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>Code</th>
-              <th>Type/Value</th>
-              <th>Status</th>
-              <th>Expires</th>
-              <th>Reason</th>
-              <th>Issued by</th>
-              <th>Issued at</th>
-              <th>Order</th>
-              <th>Actions</th>
+              <th>{t("clients.promos.table.code")}</th>
+              <th>{t("clients.promos.table.typeValue")}</th>
+              <th>{t("clients.promos.table.status")}</th>
+              <th>{t("clients.promos.table.expires")}</th>
+              <th>{t("clients.promos.table.reason")}</th>
+              <th>{t("clients.promos.table.issuedBy")}</th>
+              <th>{t("clients.promos.table.issuedAt")}</th>
+              <th>{t("clients.promos.table.order")}</th>
+              <th>{t("clients.promos.table.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -154,7 +158,7 @@ export default function ClientPromos({
                       type="button"
                       onClick={() => handleCopy(promo.code)}
                     >
-                      Copy
+                      {t("clients.promos.copy")}
                     </button>
                   </div>
                 </td>
@@ -174,7 +178,7 @@ export default function ClientPromos({
                       type="button"
                       onClick={() => handleRevoke(promo)}
                     >
-                      Revoke
+                      {t("clients.promos.revoke")}
                     </button>
                   ) : (
                     "-"
@@ -186,11 +190,11 @@ export default function ClientPromos({
         </table>
       )}
 
-      <Modal open={open} title="Issue promo" onClose={() => setOpen(false)}>
+      <Modal open={open} title={t("clients.promos.issue")} onClose={() => setOpen(false)}>
         <form className="form-grid" onSubmit={handleIssue}>
           <div className="form-row two">
             <div className="auth-field">
-              <label htmlFor="promoType">Type</label>
+              <label htmlFor="promoType">{t("clients.promos.form.type")}</label>
               <select
                 id="promoType"
                 className="select"
@@ -202,7 +206,7 @@ export default function ClientPromos({
               </select>
             </div>
             <div className="auth-field">
-              <label htmlFor="promoValue">Value</label>
+              <label htmlFor="promoValue">{t("clients.promos.form.value")}</label>
               <input
                 id="promoValue"
                 className="input"
@@ -213,7 +217,7 @@ export default function ClientPromos({
           </div>
           <div className="form-row two">
             <div className="auth-field">
-              <label htmlFor="promoExpires">Expires at</label>
+              <label htmlFor="promoExpires">{t("clients.promos.form.expires")}</label>
               <input
                 id="promoExpires"
                 className="input"
@@ -223,7 +227,7 @@ export default function ClientPromos({
               />
             </div>
             <div className="auth-field">
-              <label htmlFor="promoMin">Min order amount</label>
+              <label htmlFor="promoMin">{t("clients.promos.form.minOrder")}</label>
               <input
                 id="promoMin"
                 className="input"
@@ -236,7 +240,7 @@ export default function ClientPromos({
           </div>
           <div className="form-row two">
             <div className="auth-field">
-              <label htmlFor="promoOrder">Related order</label>
+              <label htmlFor="promoOrder">{t("clients.promos.form.relatedOrder")}</label>
               <input
                 id="promoOrder"
                 className="input"
@@ -247,7 +251,7 @@ export default function ClientPromos({
               />
             </div>
             <div className="auth-field">
-              <label htmlFor="promoReason">Reason</label>
+              <label htmlFor="promoReason">{t("clients.promos.form.reason")}</label>
               <textarea
                 id="promoReason"
                 className="input"
@@ -259,19 +263,18 @@ export default function ClientPromos({
           </div>
           <div className="modal-actions">
             <button className="button" type="submit">
-              Issue
+              {t("clients.promos.issue")}
             </button>
             <button
               className="button ghost"
               type="button"
               onClick={() => setOpen(false)}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </form>
       </Modal>
-
     </section>
   );
 }

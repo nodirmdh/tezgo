@@ -1,8 +1,7 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { apiJson } from "../../../lib/api/client";
-import { apiErrorMessage } from "../../../lib/api/errors";
 import Toast from "../../components/Toast";
 import UserTabs from "./UserTabs";
 import UserOverview from "./UserOverview";
@@ -10,12 +9,13 @@ import UserOrders from "./UserOrders";
 import UserFinance from "./UserFinance";
 import UserActivity from "./UserActivity";
 import UserAudit from "./UserAudit";
-
-const statusMessage = apiErrorMessage;
+import { translateRole, translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 const defaultOrders = { items: [], page: 1, page_size: 10, total: 0 };
 
 export default function UserProfileClient({ userId, initialUser }) {
+  const { locale, t } = useLocale();
   const [activeTab, setActiveTab] = useState("overview");
   const [user, setUser] = useState(initialUser);
   const [role, setRole] = useState("Support");
@@ -45,7 +45,7 @@ export default function UserProfileClient({ userId, initialUser }) {
   const loadUser = async () => {
     const result = await apiJson(`/api/users/${userId}`);
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
     setUser(result.data);
@@ -175,11 +175,11 @@ export default function UserProfileClient({ userId, initialUser }) {
       body: JSON.stringify(payload)
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
     setUser(result.data);
-    setToast({ type: "success", message: "РР·РјРµРЅРµРЅРёСЏ СЃРѕС…СЂР°РЅРµРЅС‹" });
+    setToast({ type: "success", message: t("users.toasts.updated") });
   };
 
   const handleDeleteUser = async () => {
@@ -187,10 +187,10 @@ export default function UserProfileClient({ userId, initialUser }) {
       method: "DELETE"
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ СѓРґР°Р»РµРЅ" });
+    setToast({ type: "success", message: t("users.toasts.deleted") });
   };
 
   const financeData = useMemo(() => {
@@ -209,13 +209,15 @@ export default function UserProfileClient({ userId, initialUser }) {
       />
       <div className="profile-header">
         <div>
-          <div className="profile-eyebrow">User profile</div>
+          <div className="profile-eyebrow">{t("users.profile.eyebrow")}</div>
           <h1>{user.username || user.tg_id}</h1>
-          <div className="helper-text">ID: {user.id}</div>
+          <div className="helper-text">
+            {t("users.profile.idLabel")}: {user.id}
+          </div>
         </div>
         <div className="profile-role">
-          <span className="badge">{user.role}</span>
-          <span className="badge">{user.status}</span>
+          <span className="badge">{translateRole(locale, user.role)}</span>
+          <span className="badge">{translateStatus(locale, user.status)}</span>
         </div>
       </div>
       <UserTabs active={activeTab} onChange={setActiveTab} />

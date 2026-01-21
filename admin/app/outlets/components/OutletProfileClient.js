@@ -10,10 +10,12 @@ import OutletOrders from "./OutletOrders";
 import OutletNotes from "./OutletNotes";
 import OutletMenuProducts from "./OutletMenuProducts";
 import OutletCampaigns from "./OutletCampaigns";
+import { useLocale } from "../../components/LocaleProvider";
 
 const emptyOrders = { items: [], page: 1, limit: 10, total: 0 };
 
 export default function OutletProfileClient({ outletId, initialOutlet }) {
+  const { t } = useLocale();
   const [outlet, setOutlet] = useState(initialOutlet);
   const [activeTab, setActiveTab] = useState("overview");
   const [toast, setToast] = useState(null);
@@ -43,7 +45,7 @@ export default function OutletProfileClient({ outletId, initialOutlet }) {
   const reloadOutlet = async () => {
     const result = await apiJson(`/api/outlets/${outletId}`);
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
     setOutlet(result.data);
@@ -102,16 +104,16 @@ export default function OutletProfileClient({ outletId, initialOutlet }) {
     }
   }, [activeTab, orderFilters]);
 
-  const handleStatusToggle = async (status) => {
+  const handleStatusToggle = async (status, reason = null) => {
     const result = await apiJson(`/api/outlets/${outletId}`, {
       method: "PATCH",
-      body: JSON.stringify({ status })
+      body: JSON.stringify({ status, status_reason: reason })
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Status updated" });
+    setToast({ type: "success", message: t("outlets.toasts.statusUpdated") });
     reloadOutlet();
   };
 
@@ -121,10 +123,10 @@ export default function OutletProfileClient({ outletId, initialOutlet }) {
       body: JSON.stringify({ text })
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Note added" });
+    setToast({ type: "success", message: t("outlets.toasts.noteAdded") });
     loadNotes();
   };
 
@@ -133,10 +135,10 @@ export default function OutletProfileClient({ outletId, initialOutlet }) {
       method: "DELETE"
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Note deleted" });
+    setToast({ type: "success", message: t("outlets.toasts.noteDeleted") });
     loadNotes();
   };
 
@@ -149,12 +151,18 @@ export default function OutletProfileClient({ outletId, initialOutlet }) {
       />
       <div className="profile-header">
         <div>
-          <div className="profile-eyebrow">Outlet profile</div>
+          <div className="profile-eyebrow">{t("outlets.profile.eyebrow")}</div>
           <h1>{outlet.name}</h1>
-          <div className="helper-text">ID: {outlet.id}</div>
+          <div className="helper-text">
+            {t("outlets.profile.idLabel")}: {outlet.id}
+          </div>
         </div>
         <div className="profile-role">
-          <span className="badge">{outlet.status || "open"}</span>
+          <span className="badge">
+            {t(`outlets.status.${outlet.status || "open"}`, {
+              defaultValue: outlet.status || "open"
+            })}
+          </span>
         </div>
       </div>
 

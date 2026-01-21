@@ -6,11 +6,15 @@ import Toast from "../../components/Toast";
 import PartnerTabs from "./PartnerTabs";
 import PartnerOverview from "./PartnerOverview";
 import PartnerOutlets from "./PartnerOutlets";
+import PartnerFinance from "./PartnerFinance";
 import PartnerNotes from "./PartnerNotes";
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
 
 const emptyOutlets = { items: [], page: 1, limit: 10, total: 0 };
 
 export default function PartnerProfileClient({ partnerId, initialPartner }) {
+  const { locale, t } = useLocale();
   const [partner, setPartner] = useState(initialPartner);
   const [activeTab, setActiveTab] = useState("overview");
   const [toast, setToast] = useState(null);
@@ -18,6 +22,7 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
   const [role, setRole] = useState("support");
   const [tabState, setTabState] = useState({
     outlets: { data: emptyOutlets, loading: false, error: null },
+    finance: { data: { summary: [], transactions: [] }, loading: false, error: null },
     notes: { data: [], loading: false, error: null }
   });
   const [outletFilters, setOutletFilters] = useState({ page: 1, limit: 10 });
@@ -35,7 +40,7 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
   const reloadPartner = async () => {
     const result = await apiJson(`/api/partners/${partnerId}`);
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
     setPartner(result.data);
@@ -83,9 +88,31 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
     }));
   };
 
+  const loadFinance = async () => {
+    setTabState((prev) => ({
+      ...prev,
+      finance: { ...prev.finance, loading: true, error: null }
+    }));
+    const result = await apiJson(`/api/partners/${partnerId}/finance`);
+    if (!result.ok) {
+      setTabState((prev) => ({
+        ...prev,
+        finance: { ...prev.finance, loading: false, error: result.error }
+      }));
+      return;
+    }
+    setTabState((prev) => ({
+      ...prev,
+      finance: { data: result.data, loading: false, error: null }
+    }));
+  };
+
   useEffect(() => {
     if (activeTab === "outlets") {
       loadOutlets(outletFilters);
+    }
+    if (activeTab === "finance") {
+      loadFinance();
     }
     if (activeTab === "notes") {
       loadNotes();
@@ -99,10 +126,10 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
       body: JSON.stringify({ status: nextStatus })
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Status updated" });
+    setToast({ type: "success", message: t("partners.toasts.statusUpdated") });
     reloadPartner();
   };
 
@@ -112,10 +139,10 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
       body: JSON.stringify({ text })
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Note added" });
+    setToast({ type: "success", message: t("partners.toasts.noteAdded") });
     loadNotes();
   };
 
@@ -124,10 +151,10 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
       method: "DELETE"
     });
     if (!result.ok) {
-      setToast({ type: "error", message: result.error });
+      setToast({ type: "error", message: t(result.error) });
       return;
     }
-    setToast({ type: "success", message: "Note deleted" });
+    setToast({ type: "success", message: t("partners.toasts.noteDeleted") });
     loadNotes();
   };
 
@@ -140,12 +167,16 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
       />
       <div className="profile-header">
         <div>
-          <div className="profile-eyebrow">Partner profile</div>
+          <div className="profile-eyebrow">{t("partners.profile.eyebrow")}</div>
           <h1>{partner.name}</h1>
-          <div className="helper-text">ID: {partner.id}</div>
+          <div className="helper-text">
+            {t("partners.profile.idLabel")}: {partner.id}
+          </div>
         </div>
         <div className="profile-role">
-          <span className="badge">{partner.status || "active"}</span>
+          <span className="badge">
+            {translateStatus(locale, partner.status || "active")}
+          </span>
         </div>
       </div>
 
@@ -161,6 +192,13 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
           loading={tabState.outlets.loading}
           error={tabState.outlets.error}
           onPageChange={(page) => setOutletFilters({ ...outletFilters, page })}
+        />
+      ) : null}
+      {activeTab === "finance" ? (
+        <PartnerFinance
+          data={tabState.finance.data}
+          loading={tabState.finance.loading}
+          error={tabState.finance.error}
         />
       ) : null}
       {activeTab === "notes" ? (

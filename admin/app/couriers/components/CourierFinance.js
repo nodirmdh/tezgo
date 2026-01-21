@@ -1,10 +1,14 @@
 "use client";
 
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
+
 export default function CourierFinance({ data, loading, error }) {
+  const { locale, t } = useLocale();
   return (
     <section className="card profile-card">
-      <div className="profile-title">Finance</div>
-      {error ? <div className="banner error">{error}</div> : null}
+      <div className="profile-title">{t("tabs.finance")}</div>
+      {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (
         <div className="skeleton-block" />
       ) : (
@@ -22,14 +26,14 @@ export default function CourierFinance({ data, loading, error }) {
             ))}
           </div>
           {data.transactions.length === 0 ? (
-            <div className="empty-state">No data yet</div>
+            <div className="empty-state">{t("dashboard.noData")}</div>
           ) : (
             <table className="table">
               <thead>
                 <tr>
-                  <th>Title</th>
-                  <th>Amount</th>
-                  <th>Status</th>
+                  <th>{t("finance.table.title")}</th>
+                  <th>{t("finance.table.amount")}</th>
+                  <th>{t("finance.table.status")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -38,7 +42,7 @@ export default function CourierFinance({ data, loading, error }) {
                     <td>{row.title}</td>
                     <td>{row.amount}</td>
                     <td>
-                      <span className="badge">{row.status}</span>
+                      <span className="badge">{translateStatus(locale, row.status)}</span>
                     </td>
                   </tr>
                 ))}

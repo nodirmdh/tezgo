@@ -1,7 +1,7 @@
-﻿export const apiErrorMessage = (status) => {
-  if (status === 401) return "401: нет авторизации";
-  if (status === 403) return "403: недостаточно прав";
-  if (status === 404) return "404: не найдено";
-  if (status === 500) return "500: ошибка сервера";
-  return "Неизвестная ошибка";
+export const apiErrorMessage = (status) => {
+  if (status === 401) return "errors.api401";
+  if (status === 403) return "errors.api403";
+  if (status === 404) return "errors.api404";
+  if (status === 500) return "errors.api500";
+  return "errors.apiUnknown";
 };

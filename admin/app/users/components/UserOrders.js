@@ -1,28 +1,38 @@
-﻿"use client";
+"use client";
 
-const formatDate = (value) => (value ? new Date(value).toLocaleString() : "-");
+import { useRouter } from "next/navigation";
+import { translateStatus } from "../../../lib/i18n";
+import { useLocale } from "../../components/LocaleProvider";
+
+const statusOptions = [
+  "",
+  "accepted_by_system",
+  "accepted_by_restaurant",
+  "ready_for_pickup",
+  "picked_up",
+  "delivered"
+];
 
 export default function UserOrders({
   data,
   filters,
-  onFilterChange,
-  onPageChange,
   loading,
-  error
+  error,
+  onFilterChange,
+  onPageChange
 }) {
-  const totalPages = Math.max(
-    1,
-    Math.ceil((data.total || 0) / (data.page_size || 10))
-  );
+  const { locale, t } = useLocale();
+  const router = useRouter();
+  const totalPages = Math.max(1, Math.ceil(data.total / data.page_size));
 
   return (
     <section className="card profile-card">
-      <div className="profile-title">РСЃС‚РѕСЂРёСЏ Р·Р°РєР°Р·РѕРІ</div>
+      <div className="profile-title">{t("users.orders.title")}</div>
       <div className="toolbar">
         <div className="toolbar-actions">
           <input
             className="input"
-            placeholder="РџРѕРёСЃРє РїРѕ orderId"
+            placeholder={t("users.orders.searchPlaceholder")}
             value={filters.q}
             onChange={(event) =>
               onFilterChange({ ...filters, q: event.target.value, page: 1 })
@@ -35,67 +45,88 @@ export default function UserOrders({
               onFilterChange({ ...filters, status: event.target.value, page: 1 })
             }
           >
-            <option value="">Р’СЃРµ СЃС‚Р°С‚СѓСЃС‹</option>
-            <option value="accepted_by_system">РџСЂРёРЅСЏС‚ СЃРёСЃС‚РµРјРѕР№</option>
-            <option value="accepted_by_restaurant">РџСЂРёРЅСЏС‚ СЂРµСЃС‚РѕСЂР°РЅРѕРј</option>
-            <option value="ready_for_pickup">Р“РѕС‚РѕРІ Рє РІС‹РґР°С‡Рµ</option>
-            <option value="picked_up">РљСѓСЂСЊРµСЂ Р·Р°Р±СЂР°Р»</option>
-            <option value="delivered">Р”РѕСЃС‚Р°РІРёР»</option>
+            {statusOptions.map((status) => (
+              <option key={status} value={status}>
+                {status
+                  ? translateStatus(locale, status)
+                  : t("users.orders.allStatuses")}
+              </option>
+            ))}
           </select>
         </div>
       </div>
-      {error ? <div className="banner error">{error}</div> : null}
+
+      {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (
-        <div className="skeleton-block" />
+        <div className="form-grid">
+          {[...Array(4)].map((_, index) => (
+            <div key={index} className="skeleton-row" />
+          ))}
+        </div>
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>OrderId</th>
-              <th>Р”Р°С‚Р°/РІСЂРµРјСЏ</th>
-              <th>Р РµСЃС‚РѕСЂР°РЅ</th>
-              <th>РЎСѓРјРјР°</th>
-              <th>РЎС‚Р°С‚СѓСЃ</th>
-              <th>РљСѓСЂСЊРµСЂ</th>
-              <th>РђРґСЂРµСЃ</th>
+              <th>{t("users.orders.table.datetime")}</th>
+              <th>{t("users.orders.table.outlet")}</th>
+              <th>{t("users.orders.table.amount")}</th>
+              <th>{t("users.orders.table.status")}</th>
+              <th>{t("users.orders.table.courier")}</th>
+              <th>{t("users.orders.table.address")}</th>
             </tr>
           </thead>
           <tbody>
             {data.items.map((order) => (
-              <tr key={order.id}>
-                <td>{order.order_number}</td>
-                <td>{formatDate(order.created_at)}</td>
+              <tr
+                key={order.id}
+                className="clickable-row"
+                role="link"
+                tabIndex={0}
+                onClick={() => router.push(`/orders/${order.id}`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    router.push(`/orders/${order.id}`);
+                  }
+                }}
+              >
+                <td>{order.created_at || "-"}</td>
                 <td>{order.outlet_name || "-"}</td>
-                <td>{order.total_amount ? `${order.total_amount} СЃСѓРј` : "-"}</td>
                 <td>
-                  <span className="badge">{order.status}</span>
+                  {order.total_amount
+                    ? `${order.total_amount} ${t("currency.sum")}`
+                    : "-"}
                 </td>
-                <td>{order.courier_user_id ?? "-"}</td>
-                <td>{order.delivery_address ?? "-"}</td>
+                <td>
+                  <span className="badge">
+                    {translateStatus(locale, order.status)}
+                  </span>
+                </td>
+                <td>{order.courier_name || "-"}</td>
+                <td>{order.delivery_address || "-"}</td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+
       <div className="pagination">
         <button
-          className="button"
+          className="button ghost"
           type="button"
           onClick={() => onPageChange(Math.max(1, filters.page - 1))}
           disabled={filters.page <= 1}
         >
-          РќР°Р·Р°Рґ
+          {t("common.back")}
         </button>
-        <div className="helper-text">
-          РЎС‚СЂР°РЅРёС†Р° {filters.page} РёР· {totalPages}
-        </div>
+        <span>{t("common.page", { page: filters.page, total: totalPages })}</span>
         <button
-          className="button"
+          className="button ghost"
           type="button"
           onClick={() => onPageChange(Math.min(totalPages, filters.page + 1))}
           disabled={filters.page >= totalPages}
         >
-          Р’РїРµСЂРµРґ
+          {t("common.next")}
         </button>
       </div>
     </section>

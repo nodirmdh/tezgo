@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import PageHeader from "../components/PageHeader";
 import Toolbar from "../components/Toolbar";
 import RoleGate from "../components/RoleGate";
@@ -6,6 +6,8 @@ import { CreateUserModal, DeleteUserModal, UpdateUserModal } from "./components/
 import { revalidatePath } from "next/cache";
 import { getUsers } from "../../lib/dataApi";
 import { apiRequest } from "../../lib/serverApi";
+import { getServerLocale } from "../../lib/i18n.server";
+import { t, translateRole, translateStatus } from "../../lib/i18n";
 
 async function createUser(formData) {
   "use server";
@@ -64,6 +66,7 @@ async function deleteUser(formData) {
 }
 
 export default async function UsersPage({ searchParams }) {
+  const locale = getServerLocale();
   const users = await getUsers({
     q: searchParams?.q,
     role: searchParams?.role,
@@ -72,11 +75,11 @@ export default async function UsersPage({ searchParams }) {
   return (
     <main>
       <PageHeader
-        title="Users"
-        description="РЎРїРёСЃРѕРє РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№ Telegram Рё РёС… СЃС‚Р°С‚СѓСЃС‹."
+        titleKey="pages.users.title"
+        descriptionKey="pages.users.description"
       />
       <div className="toolbar">
-        <div className="toolbar-title">Р”РµР№СЃС‚РІРёСЏ</div>
+        <div className="toolbar-title">{t(locale, "common.actions")}</div>
         <div className="toolbar-actions">
           <CreateUserModal onCreate={createUser} />
           <RoleGate allow={["admin"]}>
@@ -86,40 +89,43 @@ export default async function UsersPage({ searchParams }) {
         </div>
       </div>
       <form method="get">
-        <Toolbar title="Р¤РёР»СЊС‚СЂС‹ РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№" actionLabel={null}>
+        <Toolbar titleKey="pages.users.filters" actionLabel={null}>
           <input
             className="input"
             name="q"
-            placeholder="РџРѕРёСЃРє РїРѕ TG ID РёР»Рё username"
+            placeholder={t(locale, "pages.users.searchPlaceholder")}
             defaultValue={searchParams?.q}
           />
           <select className="select" name="role" defaultValue={searchParams?.role}>
-            <option value="">Р’СЃРµ СЂРѕР»Рё</option>
-            <option value="client">client</option>
-            <option value="courier">courier</option>
-            <option value="partner">partner</option>
-            <option value="admin">admin</option>
-            <option value="support">support</option>
+            <option value="">{t(locale, "pages.users.allRoles")}</option>
+            {["client", "courier", "partner", "admin", "support"].map((item) => (
+              <option key={item} value={item}>
+                {translateRole(locale, item)}
+              </option>
+            ))}
           </select>
           <select className="select" name="status" defaultValue={searchParams?.status}>
-            <option value="">Р’СЃРµ СЃС‚Р°С‚СѓСЃС‹</option>
-            <option value="active">active</option>
-            <option value="blocked">blocked</option>
+            <option value="">{t(locale, "pages.users.allStatuses")}</option>
+            {["active", "blocked"].map((item) => (
+              <option key={item} value={item}>
+                {translateStatus(locale, item)}
+              </option>
+            ))}
           </select>
           <button className="button" type="submit">
-            РџСЂРёРјРµРЅРёС‚СЊ
+            {t(locale, "common.apply")}
           </button>
         </Toolbar>
       </form>
       <table className="table">
         <thead>
           <tr>
-            <th>TG ID</th>
-            <th>Username</th>
-            <th>Р РѕР»СЊ</th>
-            <th>РЎС‚Р°С‚СѓСЃ</th>
-            <th>ID</th>
-            <th>Actions</th>
+            <th>{t(locale, "users.table.tgId")}</th>
+            <th>{t(locale, "users.table.username")}</th>
+            <th>{t(locale, "users.table.role")}</th>
+            <th>{t(locale, "users.table.status")}</th>
+            <th>{t(locale, "users.table.id")}</th>
+            <th>{t(locale, "users.table.actions")}</th>
           </tr>
         </thead>
         <tbody>
@@ -127,14 +133,14 @@ export default async function UsersPage({ searchParams }) {
             <tr key={user.id}>
               <td>{user.tg_id}</td>
               <td>{user.username}</td>
-              <td>{user.role}</td>
+              <td>{translateRole(locale, user.role)}</td>
               <td>
-                <span className="badge">{user.status}</span>
+                <span className="badge">{translateStatus(locale, user.status)}</span>
               </td>
               <td>{user.id}</td>
               <td>
                 <Link className="link-button" href={`/users/${user.id}`}>
-                  View
+                  {t(locale, "common.view")}
                 </Link>
               </td>
             </tr>

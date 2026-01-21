@@ -3,18 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useLocale } from "./LocaleProvider";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", roles: ["admin", "support", "operator", "read-only"] },
-  { href: "/users", label: "Users", roles: ["admin", "support", "operator", "read-only"] },
-  { href: "/clients", label: "Clients", roles: ["admin", "support", "operator", "read-only"] },
-  { href: "/partners", label: "Partners", roles: ["admin", "support", "operator", "read-only"] },
-  { href: "/outlets", label: "Outlets", roles: ["admin", "support", "operator", "read-only"] },
-  { href: "/couriers", label: "Couriers", roles: ["admin", "support", "operator", "read-only"] },
-  { href: "/orders", label: "Orders", roles: ["admin", "support", "operator", "read-only"] },
-  { href: "/finance", label: "Finance", roles: ["admin"] },
-  { href: "/promos", label: "Promos", roles: ["admin"] },
-  { href: "/audit", label: "Audit", roles: ["admin"] }
+  { href: "/dashboard", labelKey: "nav.dashboard", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/users", labelKey: "nav.users", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/clients", labelKey: "nav.clients", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/partners", labelKey: "nav.partners", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/outlets", labelKey: "nav.outlets", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/couriers", labelKey: "nav.couriers", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/orders", labelKey: "nav.orders", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/finance", labelKey: "nav.finance", roles: ["admin"] },
+  { href: "/promos", labelKey: "nav.promos", roles: ["admin"] },
+  { href: "/audit", labelKey: "nav.audit", roles: ["admin"] }
 ];
 
 const normalizeRole = (role) => String(role || "support").toLowerCase();
@@ -22,6 +23,7 @@ const normalizeRole = (role) => String(role || "support").toLowerCase();
 export default function Sidebar() {
   const pathname = usePathname();
   const [role, setRole] = useState("support");
+  const { t } = useLocale();
 
   useEffect(() => {
     const stored = localStorage.getItem("adminAuth");
@@ -35,10 +37,8 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-title">Kungrad Admin</div>
-        <div className="brand-subtitle">
-          Операционные инструменты для саппорта
-        </div>
+        <div className="brand-title">{t("app.title")}</div>
+        <div className="brand-subtitle">{t("app.subtitle")}</div>
       </div>
       <nav className="nav">
         {navItems
@@ -49,7 +49,7 @@ export default function Sidebar() {
               href={item.href}
               className={pathname === item.href ? "active" : undefined}
             >
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           ))}
       </nav>
