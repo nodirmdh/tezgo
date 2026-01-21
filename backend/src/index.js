@@ -72,6 +72,8 @@ const SLA_CONFIG = {
   pickup_after_ready_sla_minutes: 10
 };
 
+const MAX_BULK_ITEMS = 500;
+
 const SEVERITY_RANK = { low: 1, medium: 2, high: 3 };
 
 const toMs = (value) => {
@@ -333,6 +335,8 @@ const parseSort = (value, allowed, fallback) => {
   }
   return `${allowed[field]} ${direction}`;
 };
+
+const buildInClause = (items) => items.map(() => "?").join(", ");
 
 const createUserStmt = db.prepare(
   "INSERT INTO users (tg_id, username, status, role, updated_at, last_active) VALUES (@tg_id, @username, @status, @role, @updated_at, @last_active)"
@@ -2136,6 +2140,273 @@ app.get("/api/outlets/:outletId/items", (req, res) => {
   });
 });
 
+app.post("/api/outlets/:outletId/items/bulk", (req, res) => {
+  const outletId = Number(req.params.outletId);
+  const action = req.body.action;
+  const reason = String(req.body.reason || "").trim();
+  const params = req.body.params || {};
+  const itemIds = Array.isArray(req.body.itemIds) ? req.body.itemIds.map(Number) : [];
+  const uniqueIds = Array.from(new Set(itemIds.filter((id) => Number.isFinite(id))));
+
+  if (!action) {
+    return res.status(400).json({ error: "action required" });
+  }
+  const allowedActions = new Set([
+    "setAvailability",
+    "setPrice",
+    "adjustPrice",
+    "setStock",
+    "addToCampaign"
+  ]);
+  if (!allowedActions.has(action)) {
+    return res.status(400).json({ error: "Unsupported action" });
+  }
+  if (!reason) {
+    return res.status(400).json({ error: "reason required" });
+  }
+  if (uniqueIds.length === 0) {
+    return res.status(400).json({ error: "itemIds required" });
+  }
+  if (uniqueIds.length > MAX_BULK_ITEMS) {
+    return res.status(400).json({ error: `Too many items (max ${MAX_BULK_ITEMS})` });
+  }
+
+  const role = getRole(req);
+  const canEditPrice = role === "admin";
+  const canEditAvailability = role === "admin" || role === "operator";
+
+  if (["setPrice", "adjustPrice", "addToCampaign"].includes(action) && !canEditPrice) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  if (["setAvailability", "setStock"].includes(action) && !canEditAvailability) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const placeholders = buildInClause(uniqueIds);
+  const rows = db
+    .prepare(
+      `SELECT item_id, base_price, is_available, stock
+       FROM outlet_items
+       WHERE outlet_id = ? AND item_id IN (${placeholders})`
+    )
+    .all(outletId, ...uniqueIds);
+
+  const rowMap = new Map(rows.map((row) => [row.item_id, row]));
+  const actorId = getActorId(req);
+  const errors = [];
+  let successCount = 0;
+
+  const updateAvailabilityStmt = db.prepare(
+    "UPDATE outlet_items SET is_available = ?, updated_at = ? WHERE outlet_id = ? AND item_id = ?"
+  );
+  const updatePriceStmt = db.prepare(
+    "UPDATE outlet_items SET base_price = ?, updated_at = ? WHERE outlet_id = ? AND item_id = ?"
+  );
+  const updateStockStmt = db.prepare(
+    "UPDATE outlet_items SET stock = ?, updated_at = ? WHERE outlet_id = ? AND item_id = ?"
+  );
+  const insertPriceHistoryStmt = db.prepare(
+    `INSERT INTO outlet_item_price_history
+     (outlet_id, item_id, old_price, new_price, changed_by_user_id, reason)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  );
+
+  const upsertCampaignStmt = db.prepare(
+    `INSERT INTO outlet_campaign_items (campaign_id, item_id, discount_type, discount_value)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(campaign_id, item_id)
+     DO UPDATE SET discount_type = excluded.discount_type, discount_value = excluded.discount_value`
+  );
+
+  let campaignId = null;
+  let campaignMap = new Map();
+  if (action === "addToCampaign") {
+    campaignId = Number(params.campaignId);
+    const campaign = db
+      .prepare(
+        "SELECT id, status FROM outlet_campaigns WHERE id = ? AND outlet_id = ?"
+      )
+      .get(campaignId, outletId);
+    if (!campaign || !["planned", "active"].includes(campaign.status)) {
+      return res.status(400).json({ error: "Campaign not available" });
+    }
+    const campaignItems = db
+      .prepare(
+        `SELECT item_id, discount_type, discount_value
+         FROM outlet_campaign_items
+         WHERE campaign_id = ? AND item_id IN (${placeholders})`
+      )
+      .all(campaignId, ...uniqueIds);
+    campaignMap = new Map(campaignItems.map((row) => [row.item_id, row]));
+  }
+
+  const perform = db.transaction(() => {
+    uniqueIds.forEach((itemId) => {
+      const row = rowMap.get(itemId);
+      if (!row) {
+        errors.push({ itemId, message: "Item not found in outlet" });
+        return;
+      }
+
+      if (action === "setAvailability") {
+        const isAvailable = typeof params.isAvailable === "boolean" ? params.isAvailable : null;
+        if (isAvailable === null) {
+          errors.push({ itemId, message: "isAvailable required" });
+          return;
+        }
+        const next = isAvailable ? 1 : 0;
+        if (next !== row.is_available) {
+          updateAvailabilityStmt.run(next, nowIso(), outletId, itemId);
+          logAudit({
+            entity_type: "outlet_item",
+            entity_id: `${outletId}:${itemId}`,
+            action: "bulk_set_availability",
+            actor_id: actorId,
+            before: { is_available: row.is_available },
+            after: { is_available: next, reason }
+          });
+        }
+        successCount += 1;
+        return;
+      }
+
+      if (action === "setPrice") {
+        const basePrice = Number(params.basePrice);
+        if (Number.isNaN(basePrice)) {
+          errors.push({ itemId, message: "basePrice required" });
+          return;
+        }
+        const next = Math.max(0, Math.round(basePrice));
+        if (next !== Number(row.base_price)) {
+          updatePriceStmt.run(next, nowIso(), outletId, itemId);
+          insertPriceHistoryStmt.run(
+            outletId,
+            itemId,
+            row.base_price,
+            next,
+            actorId,
+            reason
+          );
+          logAudit({
+            entity_type: "outlet_item",
+            entity_id: `${outletId}:${itemId}`,
+            action: "bulk_set_price",
+            actor_id: actorId,
+            before: { base_price: row.base_price },
+            after: { base_price: next, reason }
+          });
+        }
+        successCount += 1;
+        return;
+      }
+
+      if (action === "adjustPrice") {
+        const value = Number(params.value);
+        const kind = params.kind;
+        const direction = params.direction;
+        if (Number.isNaN(value) || value <= 0) {
+          errors.push({ itemId, message: "value required" });
+          return;
+        }
+        if (!["increase", "decrease"].includes(direction)) {
+          errors.push({ itemId, message: "direction required" });
+          return;
+        }
+        const basePrice = Number(row.base_price || 0);
+        let next = basePrice;
+        if (kind === "percent") {
+          const delta = Math.round(basePrice * (value / 100));
+          next = direction === "decrease" ? basePrice - delta : basePrice + delta;
+        } else if (kind === "fixed") {
+          next = direction === "decrease" ? basePrice - value : basePrice + value;
+        } else {
+          errors.push({ itemId, message: "kind required" });
+          return;
+        }
+        next = Math.max(0, Math.round(next));
+        if (next !== basePrice) {
+          updatePriceStmt.run(next, nowIso(), outletId, itemId);
+          insertPriceHistoryStmt.run(
+            outletId,
+            itemId,
+            row.base_price,
+            next,
+            actorId,
+            reason
+          );
+          logAudit({
+            entity_type: "outlet_item",
+            entity_id: `${outletId}:${itemId}`,
+            action: "bulk_adjust_price",
+            actor_id: actorId,
+            before: { base_price: row.base_price },
+            after: { base_price: next, reason, kind, direction, value }
+          });
+        }
+        successCount += 1;
+        return;
+      }
+
+      if (action === "setStock") {
+        const stock =
+          params.stock === null || params.stock === undefined
+            ? null
+            : Number(params.stock);
+        if (stock !== null && Number.isNaN(stock)) {
+          errors.push({ itemId, message: "stock invalid" });
+          return;
+        }
+        if (stock !== row.stock) {
+          updateStockStmt.run(stock, nowIso(), outletId, itemId);
+          logAudit({
+            entity_type: "outlet_item",
+            entity_id: `${outletId}:${itemId}`,
+            action: "bulk_set_stock",
+            actor_id: actorId,
+            before: { stock: row.stock },
+            after: { stock, reason }
+          });
+        }
+        successCount += 1;
+        return;
+      }
+
+      if (action === "addToCampaign") {
+        const discountType = params.discount_type;
+        const discountValue = Number(params.discount_value);
+        if (!campaignId || !discountType || Number.isNaN(discountValue)) {
+          errors.push({ itemId, message: "campaignId, discount_type, discount_value required" });
+          return;
+        }
+        const existing = campaignMap.get(itemId);
+        upsertCampaignStmt.run(campaignId, itemId, discountType, discountValue);
+        logAudit({
+          entity_type: "campaign_item",
+          entity_id: `${campaignId}:${itemId}`,
+          action: "bulk_add_to_campaign",
+          actor_id: actorId,
+          before: existing
+            ? { discount_type: existing.discount_type, discount_value: existing.discount_value }
+            : null,
+          after: { discount_type: discountType, discount_value: discountValue, reason }
+        });
+        successCount += 1;
+        return;
+      }
+
+      errors.push({ itemId, message: "Unsupported action" });
+    });
+  });
+
+  perform();
+
+  return res.json({
+    successCount,
+    errorCount: errors.length,
+    errors: errors.length ? errors : undefined
+  });
+});
+
 app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
   const outletId = Number(req.params.outletId);
   const itemId = Number(req.params.itemId);
@@ -2324,7 +2595,7 @@ app.post("/api/outlets/:outletId/campaigns/:campaignId/activate", requireRole(["
   res.json({ id: campaignId, status: "active" });
 });
 
-app.post("/api/outlets/:outletId/campaigns/:campaignId/end", requireRole(["admin"]), (req, res) => {
+app.post("/api/outlets/:outletId/campaigns/:campaignId/end", requireRole(["admin", "operator"]), (req, res) => {
   const campaignId = Number(req.params.campaignId);
   db.prepare(
     `UPDATE outlet_campaigns
@@ -2360,6 +2631,124 @@ app.get("/api/outlets/:outletId/campaigns/:campaignId/items", (req, res) => {
     currentPrice: computeCurrentPrice(Number(row.base_price || 0), row)
   }));
   res.json(items);
+});
+
+app.post("/api/outlets/:outletId/campaigns/:campaignId/items/bulk", (req, res) => {
+  const outletId = Number(req.params.outletId);
+  const campaignId = Number(req.params.campaignId);
+  const action = req.body.action;
+  const reason = String(req.body.reason || "").trim();
+  const params = req.body.params || {};
+  const itemIds = Array.isArray(req.body.itemIds) ? req.body.itemIds.map(Number) : [];
+  const uniqueIds = Array.from(new Set(itemIds.filter((id) => Number.isFinite(id))));
+
+  if (!action) {
+    return res.status(400).json({ error: "action required" });
+  }
+  const allowedActions = new Set(["updateDiscount", "removeItems"]);
+  if (!allowedActions.has(action)) {
+    return res.status(400).json({ error: "Unsupported action" });
+  }
+  if (!reason) {
+    return res.status(400).json({ error: "reason required" });
+  }
+  if (uniqueIds.length === 0) {
+    return res.status(400).json({ error: "itemIds required" });
+  }
+  if (uniqueIds.length > MAX_BULK_ITEMS) {
+    return res.status(400).json({ error: `Too many items (max ${MAX_BULK_ITEMS})` });
+  }
+
+  const role = getRole(req);
+  if (!["admin", "operator"].includes(role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const campaign = db
+    .prepare("SELECT id FROM outlet_campaigns WHERE id = ? AND outlet_id = ?")
+    .get(campaignId, outletId);
+  if (!campaign) {
+    return res.status(404).json({ error: "Campaign not found" });
+  }
+
+  const placeholders = buildInClause(uniqueIds);
+  const rows = db
+    .prepare(
+      `SELECT item_id, discount_type, discount_value
+       FROM outlet_campaign_items
+       WHERE campaign_id = ? AND item_id IN (${placeholders})`
+    )
+    .all(campaignId, ...uniqueIds);
+  const rowMap = new Map(rows.map((row) => [row.item_id, row]));
+  const actorId = getActorId(req);
+  const errors = [];
+  let successCount = 0;
+
+  const updateDiscountStmt = db.prepare(
+    `UPDATE outlet_campaign_items
+     SET discount_type = COALESCE(@discount_type, discount_type),
+         discount_value = COALESCE(@discount_value, discount_value)
+     WHERE campaign_id = @campaign_id AND item_id = @item_id`
+  );
+  const deleteItemStmt = db.prepare(
+    "DELETE FROM outlet_campaign_items WHERE campaign_id = ? AND item_id = ?"
+  );
+
+  const perform = db.transaction(() => {
+    uniqueIds.forEach((itemId) => {
+      const row = rowMap.get(itemId);
+      if (!row) {
+        errors.push({ itemId, message: "Item not in campaign" });
+        return;
+      }
+
+      if (action === "updateDiscount") {
+        const nextType = params.discount_type ?? row.discount_type;
+        const nextValue = params.discount_value;
+        if (nextValue === undefined || Number.isNaN(Number(nextValue))) {
+          errors.push({ itemId, message: "discount_value required" });
+          return;
+        }
+        updateDiscountStmt.run({
+          campaign_id: campaignId,
+          item_id: itemId,
+          discount_type: nextType,
+          discount_value: Number(nextValue)
+        });
+        logAudit({
+          entity_type: "campaign_item",
+          entity_id: `${campaignId}:${itemId}`,
+          action: "bulk_update_discount",
+          actor_id: actorId,
+          before: { discount_type: row.discount_type, discount_value: row.discount_value },
+          after: { discount_type: nextType, discount_value: Number(nextValue), reason }
+        });
+        successCount += 1;
+        return;
+      }
+
+      if (action === "removeItems") {
+        deleteItemStmt.run(campaignId, itemId);
+        logAudit({
+          entity_type: "campaign_item",
+          entity_id: `${campaignId}:${itemId}`,
+          action: "bulk_remove_from_campaign",
+          actor_id: actorId,
+          before: { discount_type: row.discount_type, discount_value: row.discount_value },
+          after: { removed: true, reason }
+        });
+        successCount += 1;
+      }
+    });
+  });
+
+  perform();
+
+  return res.json({
+    successCount,
+    errorCount: errors.length,
+    errors: errors.length ? errors : undefined
+  });
 });
 
 app.post("/api/outlets/:outletId/campaigns/:campaignId/items", requireRole(["admin"]), (req, res) => {

@@ -3,8 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Toast from "../../components/Toast";
 import useConfirm from "../../components/useConfirm";
+import BulkSelectionTable from "../../components/BulkSelectionTable";
+import BulkActionBar from "../../components/BulkActionBar";
+import BulkPreviewModal from "../../components/BulkPreviewModal";
 import { normalizeRole } from "../../../lib/rbac";
 import { apiJson } from "../../../lib/api/client";
+import { bulkUpdateCampaignItems } from "../../../lib/api/bulkApi";
 
 const discountTypes = [
   { value: "percent", label: "percent" },
@@ -54,9 +58,19 @@ export default function OutletCampaigns({ outletId, role }) {
   const [menuItems, setMenuItems] = useState([]);
   const [campaignModal, setCampaignModal] = useState(null);
   const [itemModal, setItemModal] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState("");
+  const [bulkParams, setBulkParams] = useState({});
+  const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
+  const [bulkPreviewRows, setBulkPreviewRows] = useState([]);
+  const [bulkReason, setBulkReason] = useState("");
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [bulkSummary, setBulkSummary] = useState(null);
   const { confirm, dialog } = useConfirm();
 
-  const canManage = normalizeRole(role) === "admin";
+  const normalizedRole = normalizeRole(role);
+  const canManage = normalizedRole === "admin";
+  const canBulk = normalizedRole === "admin" || normalizedRole === "operator";
 
   const fetchCampaigns = async () => {
     setLoading(true);
@@ -179,6 +193,21 @@ export default function OutletCampaigns({ outletId, role }) {
     fetchCampaignItems(campaign.id);
   };
 
+  useEffect(() => {
+    const currentIds = new Set(items.map((item) => item.itemId));
+    setSelectedIds((prev) => prev.filter((id) => currentIds.has(id)));
+  }, [items]);
+
+  useEffect(() => {
+    setBulkReason("");
+    setBulkSummary(null);
+    if (bulkAction === "updateDiscount") {
+      setBulkParams({ discount_type: "percent" });
+    } else {
+      setBulkParams({});
+    }
+  }, [bulkAction]);
+
   const openItemModal = (item = null) => {
     setItemModal({
       item_id: item?.itemId ?? "",
@@ -232,6 +261,92 @@ export default function OutletCampaigns({ outletId, role }) {
         fetchCampaignItems(selectedCampaign.id);
       }
     });
+  };
+
+  const bulkActions = useMemo(() => {
+    const actions = [];
+    if (canBulk) {
+      actions.push({ value: "updateDiscount", label: "Update discount" });
+      actions.push({ value: "removeItems", label: "Remove items" });
+    }
+    return actions;
+  }, [canBulk]);
+
+  const selectedItems = useMemo(
+    () => items.filter((item) => selectedIds.includes(item.itemId)),
+    [items, selectedIds]
+  );
+
+  const openBulkPreview = () => {
+    if (!bulkAction) {
+      setToast({ type: "error", message: "Select bulk action" });
+      return;
+    }
+    if (selectedItems.length === 0) {
+      setToast({ type: "error", message: "Select items first" });
+      return;
+    }
+    if (
+      bulkAction === "updateDiscount" &&
+      (bulkParams.discount_value === "" || bulkParams.discount_value === undefined)
+    ) {
+      setToast({ type: "error", message: "Enter discount value" });
+      return;
+    }
+    const preview = selectedItems.slice(0, 20).map((item) => {
+      const changes = [];
+      if (bulkAction === "updateDiscount") {
+        const type = bulkParams.discount_type || item.discount_type;
+        changes.push({
+          label: "Discount",
+          from: `${item.discount_type} ${item.discount_value}`,
+          to: `${type} ${bulkParams.discount_value}`
+        });
+      }
+      if (bulkAction === "removeItems") {
+        changes.push({
+          label: "Campaign",
+          from: selectedCampaign?.title || "-",
+          to: "removed"
+        });
+      }
+      return { id: item.itemId, title: item.title, changes };
+    });
+    setBulkPreviewRows(preview);
+    setBulkPreviewOpen(true);
+  };
+
+  const confirmBulkAction = async () => {
+    if (!selectedCampaign) return;
+    if (!bulkReason.trim()) {
+      setToast({ type: "error", message: "Reason is required" });
+      return;
+    }
+    setBulkSubmitting(true);
+    const paramsPayload = { ...bulkParams };
+    if (bulkAction === "updateDiscount") {
+      paramsPayload.discount_value = Number(bulkParams.discount_value);
+    }
+    const result = await bulkUpdateCampaignItems({
+      outletId,
+      campaignId: selectedCampaign.id,
+      action: bulkAction,
+      itemIds: selectedIds,
+      params: paramsPayload,
+      reason: bulkReason.trim()
+    });
+    setBulkSubmitting(false);
+    if (!result.ok) {
+      setToast({ type: "error", message: result.error });
+      return;
+    }
+    const summary = `Bulk action done: ${result.data.successCount} ok, ${result.data.errorCount} errors.`;
+    setBulkSummary(summary);
+    setToast({ type: "success", message: summary });
+    setBulkPreviewOpen(false);
+    setSelectedIds([]);
+    setBulkReason("");
+    fetchCampaignItems(selectedCampaign.id);
   };
 
   const menuOptions = useMemo(
@@ -312,7 +427,7 @@ export default function OutletCampaigns({ outletId, role }) {
                         Activate
                       </button>
                     ) : null}
-                    {canManage && campaign.status === "active" ? (
+                    {canBulk && campaign.status === "active" ? (
                       <button
                         className="action-link"
                         type="button"
@@ -333,59 +448,118 @@ export default function OutletCampaigns({ outletId, role }) {
         <section className="card profile-card">
           <div className="profile-title">Campaign items</div>
           <div className="helper-text">{selectedCampaign.title}</div>
-          {canManage ? (
-            <button className="button" type="button" onClick={() => openItemModal()}>
-              Add item
-            </button>
+          <div className="toolbar">
+            <div className="toolbar-actions">
+              {canManage ? (
+                <button className="button" type="button" onClick={() => openItemModal()}>
+                  Add item
+                </button>
+              ) : null}
+              {canBulk && selectedCampaign.status === "active" ? (
+                <button className="button ghost" type="button" onClick={() => handleEnd(selectedCampaign)}>
+                  End campaign
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {canBulk ? (
+            <BulkActionBar
+              selectedCount={selectedIds.length}
+              actions={bulkActions}
+              selectedAction={bulkAction}
+              onActionChange={setBulkAction}
+              onApply={openBulkPreview}
+              disabled={bulkSubmitting}
+            >
+              {bulkAction === "updateDiscount" ? (
+                <>
+                  <select
+                    className="select"
+                    value={bulkParams.discount_type || "percent"}
+                    onChange={(event) =>
+                      setBulkParams({ ...bulkParams, discount_type: event.target.value })
+                    }
+                  >
+                    {discountTypes.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    placeholder="Discount value"
+                    value={bulkParams.discount_value ?? ""}
+                    onChange={(event) =>
+                      setBulkParams({ ...bulkParams, discount_value: event.target.value })
+                    }
+                  />
+                </>
+              ) : null}
+            </BulkActionBar>
           ) : null}
+          {bulkSummary ? <div className="helper-text">{bulkSummary}</div> : null}
           {itemsLoading ? (
             <div className="skeleton-block" />
           ) : items.length === 0 ? (
             <div className="empty-state">No items yet</div>
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th>Base price</th>
-                  <th>Discount</th>
-                  <th>Result price</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.itemId}>
-                    <td>{item.title}</td>
-                    <td>{item.basePrice}</td>
-                    <td>{`${item.discount_type} ${item.discount_value}`}</td>
-                    <td>{computeCurrentPrice(Number(item.basePrice || 0), item)}</td>
-                    <td>
-                      {canManage ? (
-                        <div className="table-actions">
-                          <button
-                            className="action-link"
-                            type="button"
-                            onClick={() => openItemModal(item)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="action-link"
-                            type="button"
-                            onClick={() => deleteItem(item)}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <BulkSelectionTable
+              items={items}
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
+              getRowId={(item) => item.itemId}
+            >
+              {({ headerCheckbox, getRowCheckbox }) => (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>{headerCheckbox}</th>
+                      <th>Item</th>
+                      <th>Base price</th>
+                      <th>Discount</th>
+                      <th>Result price</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={item.itemId}>
+                        <td>{getRowCheckbox(item.itemId)}</td>
+                        <td>{item.title}</td>
+                        <td>{item.basePrice}</td>
+                        <td>{`${item.discount_type} ${item.discount_value}`}</td>
+                        <td>{computeCurrentPrice(Number(item.basePrice || 0), item)}</td>
+                        <td>
+                          {canManage ? (
+                            <div className="table-actions">
+                              <button
+                                className="action-link"
+                                type="button"
+                                onClick={() => openItemModal(item)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="action-link"
+                                type="button"
+                                onClick={() => deleteItem(item)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </BulkSelectionTable>
           )}
         </section>
       ) : null}
@@ -516,6 +690,18 @@ export default function OutletCampaigns({ outletId, role }) {
           </form>
         ) : null}
       </Modal>
+
+      <BulkPreviewModal
+        open={bulkPreviewOpen}
+        title="Preview bulk action"
+        warning="This is a bulk change. Please review before confirming."
+        previewRows={bulkPreviewRows}
+        reason={bulkReason}
+        onReasonChange={setBulkReason}
+        onConfirm={confirmBulkAction}
+        onCancel={() => setBulkPreviewOpen(false)}
+        confirmDisabled={bulkSubmitting || !bulkReason.trim()}
+      />
     </section>
   );
 }
