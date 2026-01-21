@@ -32,3 +32,11 @@
 
 ## Courier Locations
 - order_id, courier_user_id, lat, lng, updated_at
+
+## Audit Logs
+- id, entity_type, entity_id, action, actor_user_id
+- before_json, after_json, reason, created_at
+
+## Saved Views
+- id, scope, title, owner_user_id, is_shared
+- filters_json, created_at, updated_at
