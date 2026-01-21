@@ -6,9 +6,11 @@ import useConfirm from "../../components/useConfirm";
 import BulkSelectionTable from "../../components/BulkSelectionTable";
 import BulkActionBar from "../../components/BulkActionBar";
 import BulkPreviewModal from "../../components/BulkPreviewModal";
+import CsvUploadModal from "../../components/CsvUploadModal";
 import { normalizeRole } from "../../../lib/rbac";
 import { apiJson } from "../../../lib/api/client";
 import { bulkUpdateOutletItems } from "../../../lib/api/bulkApi";
+import { applyCsvPreview, uploadCsvPreview } from "../../../lib/api/bulkUploadApi";
 
 const availabilityOptions = [
   { value: "", label: "All" },
@@ -72,12 +74,21 @@ export default function OutletMenuProducts({ outletId, role }) {
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkSummary, setBulkSummary] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [csvType, setCsvType] = useState("menuPricesAvailability");
+  const [csvReason, setCsvReason] = useState("");
+  const [csvPreview, setCsvPreview] = useState(null);
+  const [csvSummary, setCsvSummary] = useState(null);
+  const [csvUploading, setCsvUploading] = useState(false);
+  const [csvApplying, setCsvApplying] = useState(false);
   const { confirm, dialog } = useConfirm();
 
   const normalizedRole = normalizeRole(role);
   const canEditPrice = normalizedRole === "admin";
   const canEditAvailability = normalizedRole === "admin" || normalizedRole === "operator";
   const canBulk = canEditPrice || canEditAvailability;
+  const canUploadPriceCsv = canEditPrice;
+  const canUploadStockCsv = canEditAvailability;
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil((data.pageInfo.total || 0) / (data.pageInfo.limit || 20))),
@@ -138,6 +149,12 @@ export default function OutletMenuProducts({ outletId, role }) {
       setBulkParams({});
     }
   }, [bulkAction]);
+
+  useEffect(() => {
+    if (!canUploadPriceCsv && canUploadStockCsv) {
+      setCsvType("menuStock");
+    }
+  }, [canUploadPriceCsv, canUploadStockCsv]);
 
   const openEdit = (item) => {
     setEditing({
@@ -394,6 +411,55 @@ export default function OutletMenuProducts({ outletId, role }) {
     fetchItems();
   };
 
+  const csvUploadTypes = useMemo(() => {
+    const options = [];
+    if (canUploadPriceCsv) {
+      options.push({ value: "menuPricesAvailability", label: "Menu: prices & availability" });
+    }
+    if (canUploadStockCsv) {
+      options.push({ value: "menuStock", label: "Menu: stock only" });
+    }
+    return options;
+  }, [canUploadPriceCsv, canUploadStockCsv]);
+
+  const handleCsvUpload = async ({ csvText, type }) => {
+    setCsvUploading(true);
+    const result = await uploadCsvPreview({
+      type,
+      csvText,
+      contextOutletId: outletId
+    });
+    setCsvUploading(false);
+    if (!result.ok) {
+      setToast({ type: "error", message: result.error });
+      return;
+    }
+    setCsvPreview(result.data);
+    setCsvSummary(result.data.summary);
+  };
+
+  const handleCsvApply = async () => {
+    if (!csvPreview?.previewId) return;
+    if (!csvReason.trim()) {
+      setToast({ type: "error", message: "Reason is required" });
+      return;
+    }
+    setCsvApplying(true);
+    const result = await applyCsvPreview({ previewId: csvPreview.previewId, reason: csvReason.trim() });
+    setCsvApplying(false);
+    if (!result.ok) {
+      setToast({ type: "error", message: result.error });
+      return;
+    }
+    const summary = `CSV applied: ${result.data.successCount} ok, ${result.data.errorCount} errors.`;
+    setToast({ type: "success", message: summary });
+    setCsvPreview(null);
+    setCsvSummary(null);
+    setCsvReason("");
+    setCsvModalOpen(false);
+    fetchItems();
+  };
+
   return (
     <section className="card profile-card">
       <Toast
@@ -405,6 +471,11 @@ export default function OutletMenuProducts({ outletId, role }) {
       <div className="profile-title">Menu / Products</div>
       <div className="toolbar">
         <div className="toolbar-actions">
+          {canBulk ? (
+            <button className="button ghost" type="button" onClick={() => setCsvModalOpen(true)}>
+              Upload CSV
+            </button>
+          ) : null}
           <input
             className="input"
             placeholder="Search title or SKU"
@@ -805,6 +876,27 @@ export default function OutletMenuProducts({ outletId, role }) {
         onConfirm={confirmBulkAction}
         onCancel={() => setBulkPreviewOpen(false)}
         confirmDisabled={bulkSubmitting || !bulkReason.trim()}
+      />
+
+      <CsvUploadModal
+        open={csvModalOpen}
+        onClose={() => {
+          setCsvModalOpen(false);
+          setCsvPreview(null);
+          setCsvSummary(null);
+          setCsvReason("");
+        }}
+        uploadTypes={csvUploadTypes}
+        selectedType={csvType}
+        onTypeChange={setCsvType}
+        onUpload={handleCsvUpload}
+        onApply={handleCsvApply}
+        preview={csvPreview}
+        summary={csvSummary}
+        reason={csvReason}
+        onReasonChange={setCsvReason}
+        uploading={csvUploading}
+        applying={csvApplying}
       />
     </section>
   );

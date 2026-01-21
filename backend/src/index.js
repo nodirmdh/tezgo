@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import express from "express";
 import { initDb } from "./db.js";
+import { registerBulkUploadRoutes } from "./routes/bulkUpload.js";
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -337,6 +338,15 @@ const parseSort = (value, allowed, fallback) => {
 };
 
 const buildInClause = (items) => items.map(() => "?").join(", ");
+
+registerBulkUploadRoutes({
+  app,
+  db,
+  getRole,
+  getActorId,
+  logAudit,
+  nowIso
+});
 
 const createUserStmt = db.prepare(
   "INSERT INTO users (tg_id, username, status, role, updated_at, last_active) VALUES (@tg_id, @username, @status, @role, @updated_at, @last_active)"

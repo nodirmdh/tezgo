@@ -1,6 +1,6 @@
 # Статус проекта
 
-- Этап 0 (админ-основа): готово. UI-компоненты (toast/confirm/skeleton), базовые страницы, RBAC, bulk actions для меню и кампаний.
+- Этап 0 (админ-основа): готово. UI-компоненты (toast/confirm/skeleton), базовые страницы, RBAC, bulk actions и CSV bulk upload для меню/кампаний.
 - Этап 1 (Global Search): готово.
 - Этап 2 (Orders): частично. Список/карточка, SLA и проблемные флаги.
 - Этап 3 (Couriers): готово. Список и карточка (Overview/Orders/Finance/Notes).

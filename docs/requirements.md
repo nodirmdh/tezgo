@@ -16,3 +16,7 @@ Client, Courier, Partner, Admin, Support, Operator, Read-only.
   - Массовое управление позициями меню (цены, availability, stock) с preview + confirm.
   - Массовое обновление скидок и удаление items в кампаниях.
   - Обязательное логирование массовых операций (кто/когда/что изменил).
+- CSV bulk upload:
+  - Загрузка CSV с обязательным preview перед применением.
+  - Поддержка меню outlet и campaign items.
+  - Применение изменений атомарно с логированием.

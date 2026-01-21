@@ -6,9 +6,11 @@ import useConfirm from "../../components/useConfirm";
 import BulkSelectionTable from "../../components/BulkSelectionTable";
 import BulkActionBar from "../../components/BulkActionBar";
 import BulkPreviewModal from "../../components/BulkPreviewModal";
+import CsvUploadModal from "../../components/CsvUploadModal";
 import { normalizeRole } from "../../../lib/rbac";
 import { apiJson } from "../../../lib/api/client";
 import { bulkUpdateCampaignItems } from "../../../lib/api/bulkApi";
+import { applyCsvPreview, uploadCsvPreview } from "../../../lib/api/bulkUploadApi";
 
 const discountTypes = [
   { value: "percent", label: "percent" },
@@ -66,6 +68,12 @@ export default function OutletCampaigns({ outletId, role }) {
   const [bulkReason, setBulkReason] = useState("");
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkSummary, setBulkSummary] = useState(null);
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [csvReason, setCsvReason] = useState("");
+  const [csvPreview, setCsvPreview] = useState(null);
+  const [csvSummary, setCsvSummary] = useState(null);
+  const [csvUploading, setCsvUploading] = useState(false);
+  const [csvApplying, setCsvApplying] = useState(false);
   const { confirm, dialog } = useConfirm();
 
   const normalizedRole = normalizeRole(role);
@@ -349,6 +357,51 @@ export default function OutletCampaigns({ outletId, role }) {
     fetchCampaignItems(selectedCampaign.id);
   };
 
+  const csvUploadTypes = useMemo(
+    () => [{ value: "campaignDiscounts", label: "Campaign items discounts" }],
+    []
+  );
+
+  const handleCsvUpload = async ({ csvText, type }) => {
+    if (!selectedCampaign) return;
+    setCsvUploading(true);
+    const result = await uploadCsvPreview({
+      type,
+      csvText,
+      contextOutletId: outletId,
+      contextCampaignId: selectedCampaign.id
+    });
+    setCsvUploading(false);
+    if (!result.ok) {
+      setToast({ type: "error", message: result.error });
+      return;
+    }
+    setCsvPreview(result.data);
+    setCsvSummary(result.data.summary);
+  };
+
+  const handleCsvApply = async () => {
+    if (!csvPreview?.previewId) return;
+    if (!csvReason.trim()) {
+      setToast({ type: "error", message: "Reason is required" });
+      return;
+    }
+    setCsvApplying(true);
+    const result = await applyCsvPreview({ previewId: csvPreview.previewId, reason: csvReason.trim() });
+    setCsvApplying(false);
+    if (!result.ok) {
+      setToast({ type: "error", message: result.error });
+      return;
+    }
+    const summary = `CSV applied: ${result.data.successCount} ok, ${result.data.errorCount} errors.`;
+    setToast({ type: "success", message: summary });
+    setCsvPreview(null);
+    setCsvSummary(null);
+    setCsvReason("");
+    setCsvModalOpen(false);
+    fetchCampaignItems(selectedCampaign.id);
+  };
+
   const menuOptions = useMemo(
     () => menuItems.map((item) => ({ value: item.itemId, label: item.title })),
     [menuItems]
@@ -453,6 +506,11 @@ export default function OutletCampaigns({ outletId, role }) {
               {canManage ? (
                 <button className="button" type="button" onClick={() => openItemModal()}>
                   Add item
+                </button>
+              ) : null}
+              {canBulk ? (
+                <button className="button ghost" type="button" onClick={() => setCsvModalOpen(true)}>
+                  Upload CSV
                 </button>
               ) : null}
               {canBulk && selectedCampaign.status === "active" ? (
@@ -701,6 +759,27 @@ export default function OutletCampaigns({ outletId, role }) {
         onConfirm={confirmBulkAction}
         onCancel={() => setBulkPreviewOpen(false)}
         confirmDisabled={bulkSubmitting || !bulkReason.trim()}
+      />
+
+      <CsvUploadModal
+        open={csvModalOpen}
+        onClose={() => {
+          setCsvModalOpen(false);
+          setCsvPreview(null);
+          setCsvSummary(null);
+          setCsvReason("");
+        }}
+        uploadTypes={csvUploadTypes}
+        selectedType="campaignDiscounts"
+        onTypeChange={() => {}}
+        onUpload={handleCsvUpload}
+        onApply={handleCsvApply}
+        preview={csvPreview}
+        summary={csvSummary}
+        reason={csvReason}
+        onReasonChange={setCsvReason}
+        uploading={csvUploading}
+        applying={csvApplying}
       />
     </section>
   );
