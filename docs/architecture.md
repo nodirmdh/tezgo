@@ -1,18 +1,15 @@
-# Архитектура
+﻿# Архитектура
 
-## Компоненты
-- Backend API (Node.js + Express)
-- БД (SQLite на MVP)
-- Telegram Bots (Telegraf)
-- Mini App (React + Vite)
-- Admin Panel (Next.js PWA)
+## Сервисы
+- Backend API: Node.js + Express, SQLite.
+- Admin Panel: Next.js (PWA).
+- Mini App: React + Vite.
+- Telegram Bots: Telegraf.
 
-## Потоки
-- Mini App и боты общаются с API по HTTP.
-- Только API взаимодействует с БД.
-- Админка использует мок-API слой на раннем этапе для UI/UX тестирования.
+## Взаимодействие
+- Admin работает через backend API (URL из `NEXT_PUBLIC_API_BASE_URL`).
+- RBAC передаётся в заголовках `x-role` и `x-actor-tg`.
 
-## Деплой
-- Backend: Render.
-- Mini App + Admin: Vercel.
-- Админка разворачивается с корнем `admin/`.
+## Admin особенности
+- Global Search в хедере использует endpoint `GET /api/search` и показывает результаты Users/Clients/Orders.
+- Ошибки 401/403/500 обрабатываются централизованно в клиентском API‑слое.

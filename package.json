@@ -1,0 +1,13 @@
+{
+  "name": "tezgo-root",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:backend": "set PORT=3002&& npm --prefix backend run dev",
+    "dev:admin": "set NEXT_TELEMETRY_DISABLED=1&& npm --prefix admin run dev -- -p 3001",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:admin\""
+  },
+  "devDependencies": {
+    "concurrently": "9.2.0"
+  }
+}

@@ -1,6 +1,7 @@
-import "./globals.css";
+﻿import "./globals.css";
 import AuthGuard from "./components/AuthGuard";
 import Sidebar from "./components/Sidebar";
+import GlobalSearch from "./components/GlobalSearch";
 
 export const metadata = {
   title: "Kungrad Admin",
@@ -14,7 +15,12 @@ export default function RootLayout({ children }) {
         <AuthGuard>
           <div className="layout">
             <Sidebar />
-            <div className="content">{children}</div>
+            <div className="content">
+              <div className="topbar">
+                <GlobalSearch />
+              </div>
+              {children}
+            </div>
           </div>
         </AuthGuard>
       </body>

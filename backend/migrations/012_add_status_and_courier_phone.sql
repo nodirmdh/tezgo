@@ -1,0 +1,5 @@
+﻿ALTER TABLE couriers ADD COLUMN phone TEXT;
+ALTER TABLE partners ADD COLUMN status TEXT;
+ALTER TABLE outlets ADD COLUMN status TEXT;
+ALTER TABLE outlets ADD COLUMN hours TEXT;
+ALTER TABLE outlets ADD COLUMN delivery_zone TEXT;

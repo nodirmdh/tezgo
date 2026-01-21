@@ -1,13 +1,13 @@
-import PageHeader from "./components/PageHeader";
-import { getDashboardSummary } from "../lib/mockApi";
+﻿import PageHeader from "./components/PageHeader";
+import { getDashboardSummary } from "../lib/dataApi";
 
 export default async function HomePage() {
   const { cards, recentOrders } = await getDashboardSummary();
   return (
     <main>
       <PageHeader
-        title="Дашборд"
-        description="Ключевые показатели и последние события платформы."
+        title="Р”Р°С€Р±РѕСЂРґ"
+        description="РљР»СЋС‡РµРІС‹Рµ РїРѕРєР°Р·Р°С‚РµР»Рё Рё РїРѕСЃР»РµРґРЅРёРµ СЃРѕР±С‹С‚РёСЏ РїР»Р°С‚С„РѕСЂРјС‹."
       />
 
       <section className="cards">
@@ -24,13 +24,13 @@ export default async function HomePage() {
       </section>
 
       <section>
-        <h2 style={{ marginBottom: "12px" }}>Последние заказы</h2>
+        <h2 style={{ marginBottom: "12px" }}>РџРѕСЃР»РµРґРЅРёРµ Р·Р°РєР°Р·С‹</h2>
         <table className="table">
           <thead>
             <tr>
-              <th>Номер</th>
-              <th>Заведение</th>
-              <th>Статус</th>
+              <th>РќРѕРјРµСЂ</th>
+              <th>Р—Р°РІРµРґРµРЅРёРµ</th>
+              <th>РЎС‚Р°С‚СѓСЃ</th>
             </tr>
           </thead>
           <tbody>

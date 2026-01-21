@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-const roles = ["Admin", "Support"];
+const roles = ["admin", "support", "operator", "read-only"];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,10 +12,13 @@ export default function LoginPage() {
 
   const handleSubmit = (event) => {
     event.preventDefault();
+    const normalizedRole = role.toLowerCase();
     localStorage.setItem(
       "adminAuth",
-      JSON.stringify({ tgId: tgId.trim(), role })
+      JSON.stringify({ tgId: tgId.trim(), role: normalizedRole })
     );
+    document.cookie = `admin_role=${encodeURIComponent(normalizedRole)}; path=/`;
+    document.cookie = `admin_tg=${encodeURIComponent(tgId.trim())}; path=/`;
     router.push("/");
   };
 
@@ -25,7 +28,7 @@ export default function LoginPage() {
         <div>
           <div className="auth-title">Вход в админку</div>
           <div style={{ color: "#64748B", fontSize: "14px" }}>
-            Stub-авторизация по Telegram ID и роли.
+            Укажите Telegram ID и роль доступа.
           </div>
         </div>
         <div className="auth-field">
@@ -48,7 +51,9 @@ export default function LoginPage() {
             onChange={(event) => setRole(event.target.value)}
           >
             {roles.map((item) => (
-              <option key={item}>{item}</option>
+              <option key={item} value={item}>
+                {item}
+              </option>
             ))}
           </select>
         </div>

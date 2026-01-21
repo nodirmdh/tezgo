@@ -1,12 +1,14 @@
-export default function Toolbar({ title, actionLabel = "Добавить", children }) {
+﻿export default function Toolbar({ title, actionLabel = "Р”РѕР±Р°РІРёС‚СЊ", children }) {
   return (
     <div className="toolbar">
       <div className="toolbar-title">{title}</div>
       <div className="toolbar-actions">
         {children}
-        <button className="button" type="button">
-          {actionLabel}
-        </button>
+        {actionLabel ? (
+          <button className="button" type="button">
+            {actionLabel}
+          </button>
+        ) : null}
       </div>
     </div>
   );
