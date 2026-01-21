@@ -13,3 +13,5 @@
 ## Admin особенности
 - Global Search в хедере использует endpoint `GET /api/search` и показывает результаты Users/Clients/Orders.
 - Ошибки 401/403/500 обрабатываются централизованно в клиентском API‑слое.
+- Audit лог хранится в таблице `audit_logs`, доступен через `GET /api/audit` и entity‑endpoint'ы `/api/{entity}/{id}/audit`.
+- Dashboard поддерживает сохранённые представления (`saved_views`) для фильтров и группировок.

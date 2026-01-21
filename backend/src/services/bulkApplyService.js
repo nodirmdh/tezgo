@@ -78,9 +78,9 @@ export const applyPreviewChanges = ({ db, preview, reason, actorId, nowIso, logA
           after: {
             base_price: row.new.base_price,
             is_available: row.new.is_available,
-            stock: row.new.stock,
-            reason
-          }
+            stock: row.new.stock
+          },
+          reason
         });
         successCount += 1;
         return;
@@ -108,7 +108,8 @@ export const applyPreviewChanges = ({ db, preview, reason, actorId, nowIso, logA
           action: "csv_menu_stock_update",
           actor_id: actorId,
           before: { stock: current.stock },
-          after: { stock: row.new.stock, reason }
+          after: { stock: row.new.stock },
+          reason
         });
         successCount += 1;
         return;
@@ -127,7 +128,8 @@ export const applyPreviewChanges = ({ db, preview, reason, actorId, nowIso, logA
           action: "csv_campaign_discount_update",
           actor_id: actorId,
           before: row.old,
-          after: { ...row.new, reason }
+          after: { ...row.new },
+          reason
         });
         successCount += 1;
       }

@@ -136,7 +136,7 @@ export default function AuditListClient() {
                 <td>{row.entity_type}</td>
                 <td>{row.entity_id}</td>
                 <td>{row.action}</td>
-                <td>{row.actor_user_id || "-"}</td>
+                <td>{row.actor_name || row.actor_tg_id || row.actor_user_id || "-"}</td>
                 <td>{row.created_at}</td>
                 <td>
                   <details>

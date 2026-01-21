@@ -229,7 +229,7 @@ export default function OrderListClient() {
                       href={`/orders/${order.id}?tab=timeline`}
                       title={order.primaryProblemTitle || ""}
                     >
-                      {order.overallSeverity} ({order.problemsCount})
+                      {order.overallSeverityLabel || order.overallSeverity} ({order.problemsCount})
                     </Link>
                   ) : (
                     <span className="badge">ok</span>

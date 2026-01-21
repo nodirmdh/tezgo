@@ -2,6 +2,7 @@ import crypto from "crypto";
 import express from "express";
 import { initDb } from "./db.js";
 import { registerBulkUploadRoutes } from "./routes/bulkUpload.js";
+import { deriveProblems } from "./services/deriveProblems.js";
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -109,7 +110,6 @@ const computeOrderSignals = (order, events) => {
     (a, b) => toMs(a.created_at || 0) - toMs(b.created_at || 0)
   );
   const nowMs = Date.now();
-  const createdAt = getEventTime(sortedEvents, ["created"]) ?? toMs(order.created_at);
   const courierSearchStart = getEventTime(sortedEvents, ["courier_search_started"]);
   const courierAssigned = getEventTime(sortedEvents, ["courier_assigned"]);
   const cookingStart =
@@ -152,95 +152,25 @@ const computeOrderSignals = (order, events) => {
     }
   };
 
-  const problems = [];
-  if (
-    courierSearchStart &&
-    !courierAssigned &&
-    (slaSummary.courierSearchMinutes ?? 0) >
-      SLA_CONFIG.courier_search_sla_minutes
-  ) {
-    problems.push({
-      key: "COURIER_SEARCH_DELAYED",
-      severity: "high",
-      title: "Courier search delayed",
-      details: `> ${SLA_CONFIG.courier_search_sla_minutes} min`
-    });
-  }
-  if (
-    cookingStart &&
-    !readyAt &&
-    (slaSummary.cookingMinutes ?? 0) > SLA_CONFIG.cooking_sla_minutes
-  ) {
-    problems.push({
-      key: "COOKING_DELAYED",
-      severity: "medium",
-      title: "Cooking delayed",
-      details: `> ${SLA_CONFIG.cooking_sla_minutes} min`
-    });
-  }
-  if (
-    readyAt &&
-    !pickedUpAt &&
-    (slaSummary.waitingPickupMinutes ?? 0) >
-      SLA_CONFIG.pickup_after_ready_sla_minutes
-  ) {
-    problems.push({
-      key: "READY_WAITING_PICKUP",
-      severity: "high",
-      title: "Ready, waiting pickup",
-      details: `> ${SLA_CONFIG.pickup_after_ready_sla_minutes} min`
-    });
-  }
-  if (
-    pickedUpAt &&
-    !deliveredAt &&
-    (slaSummary.deliveryMinutes ?? 0) > SLA_CONFIG.delivery_sla_minutes
-  ) {
-    problems.push({
-      key: "DELIVERY_DELAYED",
-      severity: "medium",
-      title: "Delivery delayed",
-      details: `> ${SLA_CONFIG.delivery_sla_minutes} min`
-    });
-  }
-
-  const cancelEvent = sortedEvents.find((event) => event.type === "cancelled");
-  if (cancelEvent) {
-    const payload = normalizeEventPayload(cancelEvent.payload);
-    const reason = payload?.reason ? `Reason: ${payload.reason}` : null;
-    problems.push({
-      key: "CANCELLED",
-      severity: "low",
-      title: "Order cancelled",
-      details: reason
-    });
-  }
-
-  let overallSeverityRank = 0;
-  let primaryProblemTitle = null;
-  problems.forEach((problem) => {
-    const rank = SEVERITY_RANK[problem.severity] || 0;
-    if (rank > overallSeverityRank) {
-      overallSeverityRank = rank;
-      primaryProblemTitle = problem.title;
-    }
+  const derived = deriveProblems({
+    entityType: "order",
+    entity: order,
+    events: sortedEvents,
+    nowMs,
+    config: SLA_CONFIG
   });
-  const overallSeverity =
-    overallSeverityRank === 3
-      ? "high"
-      : overallSeverityRank === 2
-        ? "medium"
-        : overallSeverityRank === 1
-          ? "low"
-          : "none";
+  const severityMap = { P1: "high", P2: "medium", P3: "low" };
+  const overallSeverity = severityMap[derived.overallSeverity] || "none";
+  const overallSeverityRank = SEVERITY_RANK[overallSeverity] || 0;
 
   return {
     slaSummary,
-    problems,
-    problemsCount: problems.length,
+    problems: derived.problems,
+    problemsCount: derived.problems.length,
     overallSeverity,
+    overallSeverityLabel: derived.overallSeverity,
     overallSeverityRank,
-    primaryProblemTitle
+    primaryProblemTitle: derived.primaryProblem?.title || null
   };
 };
 
@@ -297,18 +227,39 @@ const logUserAudit = ({ user_id, actor, action, before, after }) => {
   });
 };
 
-const logAudit = ({ entity_type, entity_id, action, actor_id, before, after }) => {
+const logAudit = ({ entity_type, entity_id, action, actor_id, before, after, reason }) => {
   db.prepare(
-    "INSERT INTO audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?)"
+    "INSERT INTO audit_logs (entity_type, entity_id, action, actor_user_id, before_json, after_json, reason) VALUES (?, ?, ?, ?, ?, ?, ?)"
   ).run(
     entity_type,
     String(entity_id),
     action,
     actor_id ?? null,
     before ? JSON.stringify(before) : null,
-    after ? JSON.stringify(after) : null
+    after ? JSON.stringify(after) : null,
+    reason ?? null
   );
 };
+
+const fetchAuditEntries = ({ entityType, entityId, limit = 50 }) =>
+  db
+    .prepare(
+      `SELECT audit_logs.id,
+              audit_logs.action,
+              audit_logs.before_json,
+              audit_logs.after_json,
+              audit_logs.reason,
+              audit_logs.created_at,
+              users.username as actor_name,
+              users.tg_id as actor_tg_id
+       FROM audit_logs
+       LEFT JOIN users ON users.id = audit_logs.actor_user_id
+       WHERE audit_logs.entity_type = ?
+         AND audit_logs.entity_id = ?
+       ORDER BY audit_logs.created_at DESC
+       LIMIT ?`
+    )
+    .all(entityType, String(entityId), limit);
 
 const getActorId = (req) => {
   const tgId = req.header("x-actor-tg");
@@ -811,22 +762,13 @@ app.get("/api/users/:id/activity", (req, res) => {
   res.json(rows);
 });
 
-app.get("/api/users/:id/audit", (req, res) => {
+app.get("/api/users/:id/audit", requireRole(["admin", "support", "operator", "read-only"]), (req, res) => {
   const id = Number(req.params.id);
   const user = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
-  const rows = db
-    .prepare(
-      `SELECT id, actor, action, before_json, after_json, created_at
-       FROM user_audit
-       WHERE user_id = ?
-       ORDER BY created_at DESC
-       LIMIT 50`
-    )
-    .all(id);
-  res.json(rows);
+  res.json(fetchAuditEntries({ entityType: "user", entityId: id }));
 });
 
 app.get("/api/clients", (req, res) => {
@@ -916,6 +858,15 @@ app.get("/api/clients/:id", (req, res) => {
     return res.status(404).json({ error: "Client not found" });
   }
   res.json(row);
+});
+
+app.get("/api/clients/:id/audit", requireRole(["admin", "support", "operator", "read-only"]), (req, res) => {
+  const id = Number(req.params.id);
+  const client = db.prepare("SELECT user_id FROM clients WHERE user_id = ?").get(id);
+  if (!client) {
+    return res.status(404).json({ error: "Client not found" });
+  }
+  res.json(fetchAuditEntries({ entityType: "client", entityId: id }));
 });
 
 app.patch("/api/clients/:id", requireRole(["admin", "support", "operator"]), (req, res) => {
@@ -1210,6 +1161,15 @@ app.post("/api/clients/:id/addresses", requireRole(["admin", "support"]), (req, 
     )
     .get(result.lastInsertRowid);
 
+  logAudit({
+    entity_type: "address",
+    entity_id: row.id,
+    action: "create",
+    actor_id: getActorId(req),
+    before: null,
+    after: row
+  });
+
   res.status(201).json(row);
 });
 
@@ -1218,7 +1178,7 @@ app.patch("/api/clients/:id/addresses/:addressId", requireRole(["admin", "suppor
   const addressId = Number(req.params.addressId);
   const address = db
     .prepare(
-      "SELECT id, client_user_id, is_primary FROM client_addresses WHERE id = ?"
+      "SELECT id, client_user_id, label, address_text, entrance, floor, apartment, comment, lat, lng, is_primary FROM client_addresses WHERE id = ?"
     )
     .get(addressId);
   if (!address || address.client_user_id !== id) {
@@ -1279,15 +1239,39 @@ app.patch("/api/clients/:id/addresses/:addressId", requireRole(["admin", "suppor
     )
     .get(addressId);
 
+  logAudit({
+    entity_type: "address",
+    entity_id: row.id,
+    action: "update",
+    actor_id: getActorId(req),
+    before: address,
+    after: row
+  });
+
   res.json(row);
 });
 
 app.delete("/api/clients/:id/addresses/:addressId", requireRole(["admin", "support"]), (req, res) => {
   const id = Number(req.params.id);
   const addressId = Number(req.params.addressId);
+  const address = db
+    .prepare(
+      "SELECT id, client_user_id, label, address_text, entrance, floor, apartment, comment, lat, lng, is_primary FROM client_addresses WHERE id = ? AND client_user_id = ?"
+    )
+    .get(addressId, id);
   db.prepare(
     "DELETE FROM client_addresses WHERE id = ? AND client_user_id = ?"
   ).run(addressId, id);
+  if (address) {
+    logAudit({
+      entity_type: "address",
+      entity_id: addressId,
+      action: "delete",
+      actor_id: getActorId(req),
+      before: address,
+      after: null
+    });
+  }
   res.status(204).send();
 });
 
@@ -1296,7 +1280,7 @@ app.post("/api/clients/:id/addresses/:addressId/set-primary", requireRole(["admi
   const addressId = Number(req.params.addressId);
   const address = db
     .prepare(
-      "SELECT id FROM client_addresses WHERE id = ? AND client_user_id = ?"
+      "SELECT id, client_user_id, is_primary FROM client_addresses WHERE id = ? AND client_user_id = ?"
     )
     .get(addressId, id);
   if (!address) {
@@ -1327,6 +1311,14 @@ app.post("/api/clients/:id/addresses/:addressId/set-primary", requireRole(["admi
        WHERE id = ?`
     )
     .get(addressId);
+  logAudit({
+    entity_type: "address",
+    entity_id: row.id,
+    action: "set_primary",
+    actor_id: getActorId(req),
+    before: address,
+    after: row
+  });
   res.json(row);
 });
 
@@ -1433,6 +1425,16 @@ app.post("/api/clients/:id/promos/issue", requireRole(["admin", "support"]), (re
     )
     .get(result.lastInsertRowid);
 
+  logAudit({
+    entity_type: "promo",
+    entity_id: row.id,
+    action: "issue_promo",
+    actor_id: actorId,
+    before: null,
+    after: row,
+    reason
+  });
+
   res.status(201).json(row);
 });
 
@@ -1460,6 +1462,16 @@ app.post("/api/clients/:id/promos/:promoIssueId/revoke", requireRole(["admin", "
     revoked_at: nowIso(),
     revoked_by_user_id: getActorId(req),
     id: promoIssueId
+  });
+
+  logAudit({
+    entity_type: "promo",
+    entity_id: promoIssueId,
+    action: "revoke_promo",
+    actor_id: getActorId(req),
+    before: promo,
+    after: { status: "revoked" },
+    reason: req.body.reason ?? null
   });
 
   res.json({ id: promoIssueId, status: "revoked" });
@@ -1517,6 +1529,112 @@ app.get("/api/search", (req, res) => {
     .all({ q, qStart, exact: qRaw });
 
   return res.json({ users, clients, orders });
+});
+
+app.get("/api/views", requireRole(["admin", "support", "operator", "read-only"]), (req, res) => {
+  const scope = String(req.query.scope || "").trim();
+  if (!scope) {
+    return res.status(400).json({ error: "scope required" });
+  }
+  const actorId = getActorId(req);
+  const rows = db
+    .prepare(
+      `SELECT id, scope, title, owner_user_id, is_shared, filters_json, created_at, updated_at
+       FROM saved_views
+       WHERE scope = ?
+         AND (is_shared = 1 OR owner_user_id = ?)
+       ORDER BY is_shared DESC, created_at DESC`
+    )
+    .all(scope, actorId ?? -1);
+  res.json(rows);
+});
+
+app.post("/api/views", requireRole(["admin", "support", "operator"]), (req, res) => {
+  const actorId = getActorId(req);
+  if (!actorId) {
+    return res.status(400).json({ error: "actor required" });
+  }
+  const scope = String(req.body.scope || "").trim();
+  const title = String(req.body.title || "").trim();
+  const filters = req.body.filters;
+  const isShared = req.body.is_shared ? 1 : 0;
+  if (!scope || !title || !filters) {
+    return res.status(400).json({ error: "scope, title, filters required" });
+  }
+  if (isShared && getRole(req) !== "admin") {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const result = db
+    .prepare(
+      `INSERT INTO saved_views
+       (scope, title, owner_user_id, is_shared, filters_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(scope, title, actorId, isShared, JSON.stringify(filters), nowIso(), nowIso());
+  const view = db
+    .prepare(
+      `SELECT id, scope, title, owner_user_id, is_shared, filters_json, created_at, updated_at
+       FROM saved_views WHERE id = ?`
+    )
+    .get(result.lastInsertRowid);
+  res.status(201).json(view);
+});
+
+app.patch("/api/views/:id", requireRole(["admin", "support", "operator"]), (req, res) => {
+  const id = Number(req.params.id);
+  const view = db
+    .prepare("SELECT id, owner_user_id FROM saved_views WHERE id = ?")
+    .get(id);
+  if (!view) {
+    return res.status(404).json({ error: "View not found" });
+  }
+  const actorId = getActorId(req);
+  const role = getRole(req);
+  if (view.owner_user_id && actorId !== view.owner_user_id && role !== "admin") {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const isShared = req.body.is_shared !== undefined ? (req.body.is_shared ? 1 : 0) : null;
+  if (isShared === 1 && role !== "admin") {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  db.prepare(
+    `UPDATE saved_views
+     SET title = COALESCE(@title, title),
+         is_shared = COALESCE(@is_shared, is_shared),
+         filters_json = COALESCE(@filters_json, filters_json),
+         updated_at = @updated_at
+     WHERE id = @id`
+  ).run({
+    id,
+    title: req.body.title ?? null,
+    is_shared: isShared,
+    filters_json: req.body.filters ? JSON.stringify(req.body.filters) : null,
+    updated_at: nowIso()
+  });
+  const updated = db
+    .prepare(
+      `SELECT id, scope, title, owner_user_id, is_shared, filters_json, created_at, updated_at
+       FROM saved_views WHERE id = ?`
+    )
+    .get(id);
+  res.json(updated);
+});
+
+app.delete("/api/views/:id", requireRole(["admin", "support", "operator"]), (req, res) => {
+  const id = Number(req.params.id);
+  const view = db
+    .prepare("SELECT id, owner_user_id FROM saved_views WHERE id = ?")
+    .get(id);
+  if (!view) {
+    return res.status(404).json({ error: "View not found" });
+  }
+  const actorId = getActorId(req);
+  const role = getRole(req);
+  if (view.owner_user_id && actorId !== view.owner_user_id && role !== "admin") {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  db.prepare("DELETE FROM saved_views WHERE id = ?").run(id);
+  res.status(204).send();
 });
 
 app.get("/api/partners/list", (req, res) => {
@@ -1942,6 +2060,15 @@ app.get("/api/outlets/:id", (req, res) => {
   res.json(outlet);
 });
 
+app.get("/api/outlets/:id/audit", requireRole(["admin", "support", "operator", "read-only"]), (req, res) => {
+  const id = Number(req.params.id);
+  const outlet = db.prepare("SELECT id FROM outlets WHERE id = ?").get(id);
+  if (!outlet) {
+    return res.status(404).json({ error: "Outlet not found" });
+  }
+  res.json(fetchAuditEntries({ entityType: "outlet", entityId: id }));
+});
+
 app.get("/api/outlets/:id/orders", (req, res) => {
   const id = Number(req.params.id);
   const { q, status } = req.query;
@@ -2273,7 +2400,8 @@ app.post("/api/outlets/:outletId/items/bulk", (req, res) => {
             action: "bulk_set_availability",
             actor_id: actorId,
             before: { is_available: row.is_available },
-            after: { is_available: next, reason }
+            after: { is_available: next },
+            reason
           });
         }
         successCount += 1;
@@ -2303,7 +2431,8 @@ app.post("/api/outlets/:outletId/items/bulk", (req, res) => {
             action: "bulk_set_price",
             actor_id: actorId,
             before: { base_price: row.base_price },
-            after: { base_price: next, reason }
+            after: { base_price: next },
+            reason
           });
         }
         successCount += 1;
@@ -2350,7 +2479,8 @@ app.post("/api/outlets/:outletId/items/bulk", (req, res) => {
             action: "bulk_adjust_price",
             actor_id: actorId,
             before: { base_price: row.base_price },
-            after: { base_price: next, reason, kind, direction, value }
+            after: { base_price: next, kind, direction, value },
+            reason
           });
         }
         successCount += 1;
@@ -2374,7 +2504,8 @@ app.post("/api/outlets/:outletId/items/bulk", (req, res) => {
             action: "bulk_set_stock",
             actor_id: actorId,
             before: { stock: row.stock },
-            after: { stock, reason }
+            after: { stock },
+            reason
           });
         }
         successCount += 1;
@@ -2398,7 +2529,8 @@ app.post("/api/outlets/:outletId/items/bulk", (req, res) => {
           before: existing
             ? { discount_type: existing.discount_type, discount_value: existing.discount_value }
             : null,
-          after: { discount_type: discountType, discount_value: discountValue, reason }
+          after: { discount_type: discountType, discount_value: discountValue },
+          reason
         });
         successCount += 1;
         return;
@@ -2440,6 +2572,9 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
   if ((req.body.isAvailable !== undefined || req.body.stock !== undefined) && !canEditAvailability) {
     return res.status(403).json({ error: "Forbidden" });
   }
+  if (req.body.basePrice !== undefined && req.body.reason === undefined) {
+    return res.status(400).json({ error: "Reason required for price change" });
+  }
 
   const newBasePrice =
     req.body.basePrice !== undefined ? Number(req.body.basePrice) : null;
@@ -2477,6 +2612,15 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
       getActorId(req),
       req.body.reason ?? null
     );
+    logAudit({
+      entity_type: "item",
+      entity_id: `${outletId}:${itemId}`,
+      action: "price_change",
+      actor_id: getActorId(req),
+      before: { base_price: outletItem.base_price },
+      after: { base_price: newBasePrice },
+      reason: req.body.reason ?? null
+    });
   }
 
   const updated = db
@@ -2745,7 +2889,8 @@ app.post("/api/outlets/:outletId/campaigns/:campaignId/items/bulk", (req, res) =
           action: "bulk_remove_from_campaign",
           actor_id: actorId,
           before: { discount_type: row.discount_type, discount_value: row.discount_value },
-          after: { removed: true, reason }
+          after: { removed: true },
+          reason
         });
         successCount += 1;
       }
@@ -3522,6 +3667,15 @@ app.get("/api/orders/:id", (req, res) => {
   });
 });
 
+app.get("/api/orders/:id/audit", requireRole(["admin", "support", "operator", "read-only"]), (req, res) => {
+  const id = Number(req.params.id);
+  const order = getOrderStmt.get(id);
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+  res.json(fetchAuditEntries({ entityType: "order", entityId: id }));
+});
+
 app.patch("/api/orders/:id", requireRole(["admin", "operator"]), (req, res) => {
   const id = Number(req.params.id);
   const order = getOrderStmt.get(id);
@@ -3903,34 +4057,43 @@ app.get("/api/finance/summary", (req, res) => {
 });
 
 app.get("/api/audit", requireRole(["admin"]), (req, res) => {
-  const { entity_type, actor_id, date_from, date_to } = req.query;
+  const entityType = req.query.entityType || req.query.entity_type;
+  const entityId = req.query.entityId || req.query.entity_id;
+  const actorId = req.query.actorId || req.query.actor_id;
+  const dateFrom = req.query.dateFrom || req.query.date_from;
+  const dateTo = req.query.dateTo || req.query.date_to;
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 20);
   const offset = (page - 1) * limit;
-  const actorIdNumber = actor_id ? Number(actor_id) : null;
+  const actorIdNumber = actorId ? Number(actorId) : null;
 
   const { conditions, params } = buildFilters([
     {
-      value: entity_type || null,
-      clause: "audit_log.entity_type = @entity_type",
+      value: entityType || null,
+      clause: "audit_logs.entity_type = @entity_type",
       paramName: "entity_type"
+    },
+    {
+      value: entityId || null,
+      clause: "audit_logs.entity_id = @entity_id",
+      paramName: "entity_id"
     },
     {
       value:
         actorIdNumber !== null && !Number.isNaN(actorIdNumber)
           ? actorIdNumber
           : null,
-      clause: "audit_log.actor_user_id = @actor_user_id",
+      clause: "audit_logs.actor_user_id = @actor_user_id",
       paramName: "actor_user_id"
     },
     {
-      value: date_from || null,
-      clause: "audit_log.created_at >= @date_from",
+      value: dateFrom || null,
+      clause: "audit_logs.created_at >= @date_from",
       paramName: "date_from"
     },
     {
-      value: date_to || null,
-      clause: "audit_log.created_at <= @date_to",
+      value: dateTo || null,
+      clause: "audit_logs.created_at <= @date_to",
       paramName: "date_to"
     }
   ]);
@@ -3938,22 +4101,26 @@ app.get("/api/audit", requireRole(["admin"]), (req, res) => {
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const total = db
-    .prepare(`SELECT COUNT(*) as count FROM audit_log ${where}`)
+    .prepare(`SELECT COUNT(*) as count FROM audit_logs ${where}`)
     .get(params).count;
 
   const items = db
     .prepare(
-      `SELECT id,
-              entity_type,
-              entity_id,
-              action,
-              actor_user_id,
-              before_json,
-              after_json,
-              created_at
-       FROM audit_log
+      `SELECT audit_logs.id,
+              audit_logs.entity_type,
+              audit_logs.entity_id,
+              audit_logs.action,
+              audit_logs.actor_user_id,
+              audit_logs.before_json,
+              audit_logs.after_json,
+              audit_logs.reason,
+              audit_logs.created_at,
+              users.username as actor_name,
+              users.tg_id as actor_tg_id
+       FROM audit_logs
+       LEFT JOIN users ON users.id = audit_logs.actor_user_id
        ${where}
-       ORDER BY created_at DESC
+       ORDER BY audit_logs.created_at DESC
        LIMIT @limit OFFSET @offset`
     )
     .all({ ...params, limit, offset });
