@@ -145,7 +145,7 @@ const translations = {
         role: "Роль",
         status: "Статус",
         id: "ID",
-      actions: "Действия"
+        actions: "Действия"
       },
       modals: {
         addTitle: "Добавить пользователя",
@@ -342,6 +342,35 @@ const translations = {
         cancelled: "Заказ отменен",
         reassigned: "Курьер назначен"
       },
+      cancellation: {
+        title: "Отмена заказа",
+        chooseReason: "Выберите причину",
+        reasonRequired: "Выберите причину отмены",
+        comment: "Комментарий",
+        commentPlaceholder: "Опишите причину отмены",
+        commentRequired: "Комментарий обязателен для выбранной причины",
+        commentRequiredShort: "Комментарий обязателен",
+        effectsTitle: "Авто-эффекты",
+        effectsEmpty: "Выберите причину, чтобы увидеть эффекты",
+        notifyClient: "Отправить уведомление клиенту",
+        clientNotified: "Клиенту сообщили",
+        submit: "Отменить заказ",
+        confirmTitle: "Отменить заказ?",
+        confirmDescription: "Заказ будет отменен, действие нельзя отменить.",
+        groups: {
+          partner: "Партнер",
+          client: "Клиент",
+          courier: "Курьер"
+        },
+        effects: {
+          refundClient: "Возврат клиенту",
+          compensatePartner: "Компенсация партнеру",
+          penaltyPartner: "Штраф партнеру",
+          penaltyCourier: "Штраф курьеру",
+          restorePromo: "Вернуть промокод",
+          issuePromo: "Выдать промокод"
+        }
+      },
       timeline: {
         noteRequired: "Требуется текст заметки",
         noteAdded: "Заметка добавлена",
@@ -461,136 +490,6 @@ const translations = {
         submitting: "Отправка...",
         required: "Укажите причину и сумму"
       },
-      details: {
-        sentToRestaurant: "Restoranga yuborildi",
-        promisedAt: "Va'da qilingan yetkazish vaqti",
-        deliveredAt: "Haqiqiy yetkazish vaqti",
-        address: "Yetkazish manzili",
-        addressComment: "Manzil izohi",
-        entrance: "Kirish",
-        floor: "Qavat",
-        apartment: "Xonadon",
-        recipient: "Qabul qiluvchi",
-        forOther: "Boshqa odam uchun",
-        receiverName: "Qabul qiluvchi ismi",
-        receiverPhone: "Qabul qiluvchi telefoni",
-        ordererPhone: "Buyurtmachi telefoni",
-        utensils: "Anjomlar",
-        comments: "Izohlar",
-        commentRestaurant: "Restoranga izoh",
-        commentAddress: "Manzilga izoh",
-        commentCrm: "CRM-izoh",
-        payment: "To'lov",
-        subtotalFood: "Taomlar summasi",
-        deliveryFee: "Yetkazish narxi",
-        serviceFee: "Servis to'lovi",
-        discount: "Chegirma",
-        promoCode: "Promokod",
-        total: "Yakuniy summa",
-        restaurantTotal: "Restoran uchun summa",
-        items: "Buyurtma tarkibi",
-        itemsEmpty: "Pozitsiyalar yo'q",
-        itemsTable: {
-          title: "Taom",
-          quantity: "Soni",
-          weight: "Og'irlik",
-          unitPrice: "Narx",
-          total: "Jami",
-          actions: "Amallar",
-          info: "Info",
-          remove: "O'chirish",
-          add: "Pozitsiya qo'shish"
-        },
-        itemDescription: "Tavsif",
-        itemSku: "SKU",
-        saveTitle: "O'zgartirishlarni saqlash",
-        saveComment: "O'zgarishlarga izoh",
-        saveCommentPlaceholder: "O'zgarish sababini yozing",
-        saveOrder: "Buyurtmani saqlash",
-        savePending: "Saqlanmoqda...",
-        saveCommentRequired: "Izoh majburiy",
-        saveSuccess: "Buyurtma saqlandi"
-      },
-      compensation: {
-        reason: "Kompensatsiya sababi",
-        reasonPlaceholder: "Sababni yozing",
-        mode: "Kompensatsiya turi",
-        amount: "Summa",
-        percent: "Foiz",
-        value: "Qiymat",
-        valuePlaceholder: "Summa yoki foiz kiriting",
-        comment: "Izoh",
-        commentPlaceholder: "Qo'shimcha ma'lumot",
-        issue: "Kompensatsiya berish",
-        issued: "Kompensatsiya berildi",
-        submitting: "Yuborilmoqda...",
-        required: "Sabab va summani kiriting"
-      },
-      details: {
-        sentToRestaurant: "Sent to restaurant",
-        promisedAt: "Promised delivery time",
-        deliveredAt: "Actual delivery time",
-        address: "Delivery address",
-        addressComment: "Address comment",
-        entrance: "Entrance",
-        floor: "Floor",
-        apartment: "Apartment",
-        recipient: "Recipient",
-        forOther: "Order for someone else",
-        receiverName: "Recipient name",
-        receiverPhone: "Recipient phone",
-        ordererPhone: "Orderer phone",
-        utensils: "Utensils",
-        comments: "Comments",
-        commentRestaurant: "Comment to restaurant",
-        commentAddress: "Comment to address",
-        commentCrm: "CRM comment",
-        payment: "Payment",
-        subtotalFood: "Food subtotal",
-        deliveryFee: "Delivery fee",
-        serviceFee: "Service fee",
-        discount: "Discount",
-        promoCode: "Promo code",
-        total: "Total",
-        restaurantTotal: "Restaurant total",
-        items: "Order items",
-        itemsEmpty: "No items yet",
-        itemsTable: {
-          title: "Item",
-          quantity: "Qty",
-          weight: "Weight",
-          unitPrice: "Unit price",
-          total: "Total",
-          actions: "Actions",
-          info: "Info",
-          remove: "Remove",
-          add: "Add item"
-        },
-        itemDescription: "Description",
-        itemSku: "SKU",
-        saveTitle: "Save changes",
-        saveComment: "Change comment",
-        saveCommentPlaceholder: "Describe the change reason",
-        saveOrder: "Save order",
-        savePending: "Saving...",
-        saveCommentRequired: "Comment is required",
-        saveSuccess: "Order saved"
-      },
-      compensation: {
-        reason: "Compensation reason",
-        reasonPlaceholder: "Describe the reason",
-        mode: "Compensation type",
-        amount: "Amount",
-        percent: "Percent",
-        value: "Value",
-        valuePlaceholder: "Enter amount or percent",
-        comment: "Comment",
-        commentPlaceholder: "Additional details",
-        issue: "Issue compensation",
-        issued: "Compensation issued",
-        submitting: "Submitting...",
-        required: "Reason and value are required"
-      }
     },
     clients: {
       profile: {
@@ -832,6 +731,68 @@ const translations = {
       },
       overview: {
         title: "Обзор"
+      },
+      campaigns: {
+        title: "Кампании",
+        create: "Создать кампанию",
+        edit: "Редактировать кампанию",
+        saved: "Кампания сохранена",
+        empty: "Кампаний пока нет",
+        activateTitle: "Активировать кампанию?",
+        activateDescription: "Кампания станет активной сразу.",
+        endTitle: "Поставить кампанию на паузу?",
+        endDescription: "Кампания будет приостановлена сразу.",
+        activate: "Активировать",
+        end: "Пауза",
+        activated: "Кампания активирована",
+        ended: "Кампания приостановлена",
+        itemsTitle: "Позиции кампании",
+        addItem: "Добавить позицию",
+        itemsEmpty: "Позиции пока не добавлены",
+        itemTitle: "Позиция кампании",
+        selectItems: "Выберите позицию",
+        itemsRequired: "Добавьте хотя бы одну позицию",
+        itemSaved: "Позиция сохранена",
+        itemRemoved: "Позиция удалена",
+        titleRequired: "Название обязательно",
+        outletsRequired: "Выберите хотя бы одну точку",
+        table: {
+          title: "Название",
+          status: "Статус",
+          start: "Старт",
+          end: "Финиш",
+          items: "Позиции"
+        },
+        itemsTable: {
+          item: "Позиция",
+          basePrice: "Базовая цена",
+          discount: "Скидка",
+          resultPrice: "Цена по акции"
+        },
+        form: {
+          title: "Название",
+          outlets: "Точки",
+          start: "Начало",
+          end: "Окончание",
+          status: "Статус",
+          item: "Позиция",
+          qty: "Кол-во",
+          discountType: "Тип скидки",
+          discountValue: "Значение",
+          required: "Обязательно"
+        },
+        status: {
+          draft: "Черновик",
+          active: "Активна",
+          paused: "Пауза",
+          expired: "Истекла",
+          archived: "Архив"
+        },
+        discount: {
+          percent: "Процент",
+          fixed: "Фикс",
+          newPrice: "Новая цена"
+        }
       },
       fields: {
         name: "Название",
@@ -1476,6 +1437,35 @@ const translations = {
         noAccess: "Ruxsat yo'q",
         cancelled: "Buyurtma bekor qilindi",
         reassigned: "Kuryer qayta biriktirildi"
+      },
+      cancellation: {
+        title: "Buyurtmani bekor qilish",
+        chooseReason: "Sababni tanlang",
+        reasonRequired: "Bekor qilish sababini tanlang",
+        comment: "Izoh",
+        commentPlaceholder: "Bekor qilish sababini yozing",
+        commentRequired: "Tanlangan sabab uchun izoh majburiy",
+        commentRequiredShort: "Izoh kerak",
+        effectsTitle: "Avto-ta'sirlar",
+        effectsEmpty: "Sababni tanlang",
+        notifyClient: "Mijozga xabar yuborish",
+        clientNotified: "Mijozga xabar berildi",
+        submit: "Bekor qilish",
+        confirmTitle: "Buyurtma bekor qilinsinmi?",
+        confirmDescription: "Buyurtma bekor qilinadi, bu amalni qaytarib bo'lmaydi.",
+        groups: {
+          partner: "Hamkor",
+          client: "Mijoz",
+          courier: "Kuryer"
+        },
+        effects: {
+          refundClient: "Mijozga qaytarish",
+          compensatePartner: "Hamkorga kompensatsiya",
+          penaltyPartner: "Hamkorga jarima",
+          penaltyCourier: "Kuryerga jarima",
+          restorePromo: "Promokodni qaytarish",
+          issuePromo: "Promokod berish"
+        }
       },
       timeline: {
         noteRequired: "Izoh kerak",
@@ -2340,6 +2330,37 @@ const translations = {
         title: "Bel sende"
       }
     },
+    orders: {
+      cancellation: {
+        title: "Buyırtpanı biykar etiw",
+        chooseReason: "Sebebin saylań",
+        reasonRequired: "Biykar etiw sebebin saylań",
+        comment: "Pikir",
+        commentPlaceholder: "Biykar etiw sebebin jazıń",
+        commentRequired: "Saylanǵan sebeptiń pikirin jazıw kerek",
+        commentRequiredShort: "Pikir kerek",
+        effectsTitle: "Avto-áserler",
+        effectsEmpty: "Sebebin saylań",
+        notifyClient: "Klientke habar jiberiw",
+        clientNotified: "Klientke habar berildi",
+        submit: "Buyırtpanı biykar etiw",
+        confirmTitle: "Buyırtpa biykar etilsin be?",
+        confirmDescription: "Buyırtpa biykar etiledi, bul ámel qaytarılmaydı.",
+        groups: {
+          partner: "Hamkar",
+          client: "Klient",
+          courier: "Kuryer"
+        },
+        effects: {
+          refundClient: "Klientke qaytarım",
+          compensatePartner: "Hamkarga kompensaciya",
+          penaltyPartner: "Hamkarga jarıma",
+          penaltyCourier: "Kuryerge jarıma",
+          restorePromo: "Promokodtı qaytarıw",
+          issuePromo: "Promokod beriw"
+        }
+      }
+    },
     status: {
       active: "Faol",
       blocked: "Bloklandı",
@@ -2709,6 +2730,35 @@ const translations = {
         noAccess: "No access",
         cancelled: "Order cancelled",
         reassigned: "Courier reassigned"
+      },
+      cancellation: {
+        title: "Cancel order",
+        chooseReason: "Select reason",
+        reasonRequired: "Select a cancellation reason",
+        comment: "Comment",
+        commentPlaceholder: "Describe cancellation reason",
+        commentRequired: "Comment is required for this reason",
+        commentRequiredShort: "Comment required",
+        effectsTitle: "Auto-effects",
+        effectsEmpty: "Select a reason to see effects",
+        notifyClient: "Send notification to client",
+        clientNotified: "Client was informed",
+        submit: "Cancel order",
+        confirmTitle: "Cancel this order?",
+        confirmDescription: "The order will be cancelled and cannot be undone.",
+        groups: {
+          partner: "Partner",
+          client: "Client",
+          courier: "Courier"
+        },
+        effects: {
+          refundClient: "Refund to client",
+          compensatePartner: "Partner compensation",
+          penaltyPartner: "Partner penalty",
+          penaltyCourier: "Courier penalty",
+          restorePromo: "Restore promo",
+          issuePromo: "Issue promo"
+        }
       },
       timeline: {
         noteRequired: "Note is required",

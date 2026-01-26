@@ -1,6 +1,8 @@
 import crypto from "crypto";
+import crypto from "crypto";
 import express from "express";
 import { initDb } from "./db.js";
+import { setupCampaignRoutes } from "./campaignRoutes.js";
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -22,6 +24,8 @@ app.use((req, res, next) => {
 
 const getRole = (req) =>
   String(req.header("x-role") || "support").toLowerCase();
+
+const getActorTg = (req) => String(req.header("x-actor-tg") || "");
 
 const requireRole = (allowed) => (req, res, next) => {
   const role = getRole(req);
@@ -322,6 +326,123 @@ const logOrderEvent = ({ order_id, type, payload, actor_id }) => {
   ).run(order_id, type, payload ? JSON.stringify(payload) : null, actor_id);
 };
 
+const parseJsonSafe = (value, fallback = {}) => {
+  if (!value) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
+
+const applyCancellationEffects = ({
+  order,
+  effects,
+  actorRole,
+  actorTg,
+  actorId
+}) => {
+  const outlet = db
+    .prepare("SELECT partner_id FROM outlets WHERE id = ?")
+    .get(order.outlet_id);
+  const partnerId = outlet?.partner_id ?? null;
+
+  const createLedgerEntry = ({
+    title,
+    amount,
+    type,
+    category,
+    user_id,
+    partner_id,
+    order_id,
+    direction = "credit"
+  }) => {
+    if (!amount || Number.isNaN(Number(amount))) {
+      return;
+    }
+    const normalized = Math.abs(Number(amount));
+    if (!normalized) {
+      return;
+    }
+    const balanceDelta = direction === "debit" ? -normalized : normalized;
+    createLedgerStmt.run({
+      title,
+      amount: normalized,
+      status: "completed",
+      type,
+      user_id: user_id ?? null,
+      partner_id: partner_id ?? null,
+      order_id: order_id ?? null,
+      balance_delta: balanceDelta,
+      category
+    });
+  };
+
+  if (effects.refund_client) {
+    createLedgerEntry({
+      title: `Refund for ${order.order_number}`,
+      amount: order.total_amount ?? 0,
+      type: "refund",
+      category: "refund",
+      user_id: order.client_user_id,
+      order_id: order.id,
+      direction: "credit"
+    });
+  }
+
+  if (effects.compensate_partner) {
+    createLedgerEntry({
+      title: `Partner компенсация ${order.order_number}`,
+      amount: order.subtotal_food ?? 0,
+      type: "compensation",
+      category: "partner",
+      partner_id: partnerId,
+      order_id: order.id,
+      direction: "credit"
+    });
+  }
+
+  if (effects.penalty_partner) {
+    createLedgerEntry({
+      title: `Partner штраф ${order.order_number}`,
+      amount: order.restaurant_penalty ?? 0,
+      type: "penalty",
+      category: "partner",
+      partner_id: partnerId,
+      order_id: order.id,
+      direction: "debit"
+    });
+  }
+
+  if (effects.penalty_courier) {
+    createLedgerEntry({
+      title: `Courier penalty ${order.order_number}`,
+      amount: order.courier_penalty ?? 0,
+      type: "penalty",
+      category: "courier",
+      user_id: order.courier_user_id,
+      order_id: order.id,
+      direction: "debit"
+    });
+  }
+
+  logAudit({
+    entity_type: "order_cancellation_effects",
+    entity_id: order.id,
+    action: "apply",
+    actor_id: actorId,
+    before: null,
+    after: {
+      order_id: order.id,
+      effects,
+      actor_role: actorRole,
+      actor_tg: actorTg
+    }
+  });
+};
+
 const parseSort = (value, allowed, fallback) => {
   if (!value) {
     return fallback;
@@ -428,11 +549,64 @@ const createOrderStmt = db.prepare(
 const updateOrderStmt = db.prepare(
   `UPDATE orders
      SET status = COALESCE(@status, status),
-         courier_user_id = COALESCE(@courier_user_id, courier_user_id),
-         prep_eta_minutes = COALESCE(@prep_eta_minutes, prep_eta_minutes),
-         total_amount = COALESCE(@total_amount, total_amount),
-         delivery_address = COALESCE(@delivery_address, delivery_address)
+          courier_user_id = COALESCE(@courier_user_id, courier_user_id),
+          prep_eta_minutes = COALESCE(@prep_eta_minutes, prep_eta_minutes),
+          total_amount = COALESCE(@total_amount, total_amount),
+          delivery_address = COALESCE(@delivery_address, delivery_address)
      WHERE id = @id`
+);
+const getOrderCancelStmt = db.prepare(
+  `SELECT orders.id,
+          orders.order_number,
+          orders.outlet_id,
+          orders.client_user_id,
+          orders.courier_user_id,
+          orders.status,
+          orders.subtotal_food,
+          orders.total_amount,
+          orders.restaurant_penalty,
+          orders.courier_penalty,
+          orders.promo_code
+   FROM orders
+   WHERE orders.id = ?`
+);
+const updateOrderCancelStmt = db.prepare(
+  `UPDATE orders
+   SET status = 'cancelled',
+       cancelled_at = @cancelled_at
+   WHERE id = @id`
+);
+const insertOrderCancellationStmt = db.prepare(
+  `INSERT INTO order_cancellations
+    (id, order_id, group_code, reason_code, comment, notify_client, client_notified,
+     effects_json, created_by_role, created_by_tg_id, created_at)
+   VALUES (@id, @order_id, @group_code, @reason_code, @comment, @notify_client,
+           @client_notified, @effects_json, @created_by_role, @created_by_tg_id, @created_at)`
+);
+const listCancelReasonsStmt = db.prepare(
+  `SELECT code,
+          group_code,
+          label_ru,
+          label_uz,
+          label_kaa,
+          label_en,
+          requires_comment,
+          effects_json
+   FROM cancel_reasons
+   WHERE is_active = 1
+   ORDER BY group_code, code`
+);
+const getCancelReasonStmt = db.prepare(
+  `SELECT code,
+          group_code,
+          label_ru,
+          label_uz,
+          label_kaa,
+          label_en,
+          requires_comment,
+          effects_json
+   FROM cancel_reasons
+   WHERE code = ? AND is_active = 1`
 );
 const getOrderPricingStmt = db.prepare(
   `SELECT id,
@@ -2685,227 +2859,6 @@ app.get("/api/outlets/:outletId/items/:itemId/price-history", (req, res) => {
   res.json(rows);
 });
 
-app.get("/api/outlets/:outletId/campaigns", (req, res) => {
-  const outletId = Number(req.params.outletId);
-  const rows = db
-    .prepare(
-      `SELECT outlet_campaigns.id,
-              outlet_campaigns.title,
-              outlet_campaigns.status,
-              outlet_campaigns.start_at,
-              outlet_campaigns.end_at,
-              outlet_campaigns.created_at,
-              outlet_campaigns.updated_at,
-              COUNT(outlet_campaign_items.item_id) as items_count
-       FROM outlet_campaigns
-       LEFT JOIN outlet_campaign_items ON outlet_campaign_items.campaign_id = outlet_campaigns.id
-       WHERE outlet_campaigns.outlet_id = ?
-       GROUP BY outlet_campaigns.id
-       ORDER BY outlet_campaigns.created_at DESC`
-    )
-    .all(outletId);
-  res.json(rows);
-});
-
-app.post("/api/outlets/:outletId/campaigns", requireRole(["admin"]), (req, res) => {
-  const outletId = Number(req.params.outletId);
-  const title = req.body.title;
-  const status = req.body.status ?? "planned";
-  if (!title) {
-    return res.status(400).json({ error: "title required" });
-  }
-  if (!["planned", "active", "ended"].includes(status)) {
-    return res.status(400).json({ error: "Invalid status" });
-  }
-  const result = db
-    .prepare(
-      `INSERT INTO outlet_campaigns
-       (outlet_id, title, status, start_at, end_at, created_by_user_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      outletId,
-      title,
-      status,
-      req.body.start_at ?? null,
-      req.body.end_at ?? null,
-      getActorId(req),
-      nowIso(),
-      nowIso()
-    );
-  const campaign = db
-    .prepare(
-      `SELECT id, outlet_id, title, status, start_at, end_at, created_at, updated_at
-       FROM outlet_campaigns WHERE id = ?`
-    )
-    .get(result.lastInsertRowid);
-  res.status(201).json(campaign);
-});
-
-app.patch("/api/outlets/:outletId/campaigns/:campaignId", requireRole(["admin"]), (req, res) => {
-  const outletId = Number(req.params.outletId);
-  const campaignId = Number(req.params.campaignId);
-  const campaign = db
-    .prepare("SELECT id FROM outlet_campaigns WHERE id = ? AND outlet_id = ?")
-    .get(campaignId, outletId);
-  if (!campaign) {
-    return res.status(404).json({ error: "Campaign not found" });
-  }
-  db.prepare(
-    `UPDATE outlet_campaigns
-     SET title = COALESCE(@title, title),
-         start_at = COALESCE(@start_at, start_at),
-         end_at = COALESCE(@end_at, end_at),
-         updated_at = @updated_at
-     WHERE id = @id`
-  ).run({
-    id: campaignId,
-    title: req.body.title ?? null,
-    start_at: req.body.start_at ?? null,
-    end_at: req.body.end_at ?? null,
-    updated_at: nowIso()
-  });
-  const updated = db
-    .prepare(
-      `SELECT id, outlet_id, title, status, start_at, end_at, created_at, updated_at
-       FROM outlet_campaigns WHERE id = ?`
-    )
-    .get(campaignId);
-  res.json(updated);
-});
-
-app.post("/api/outlets/:outletId/campaigns/:campaignId/activate", requireRole(["admin"]), (req, res) => {
-  const campaignId = Number(req.params.campaignId);
-  db.prepare(
-    `UPDATE outlet_campaigns
-     SET status = 'active',
-         start_at = COALESCE(start_at, @start_at),
-         updated_at = @updated_at
-     WHERE id = ?`
-  ).run({ start_at: nowIso(), updated_at: nowIso(), 0: campaignId });
-  res.json({ id: campaignId, status: "active" });
-});
-
-app.post("/api/outlets/:outletId/campaigns/:campaignId/end", requireRole(["admin"]), (req, res) => {
-  const campaignId = Number(req.params.campaignId);
-  db.prepare(
-    `UPDATE outlet_campaigns
-     SET status = 'ended',
-         end_at = COALESCE(end_at, @end_at),
-         updated_at = @updated_at
-     WHERE id = ?`
-  ).run({ end_at: nowIso(), updated_at: nowIso(), 0: campaignId });
-  res.json({ id: campaignId, status: "ended" });
-});
-
-app.get("/api/outlets/:outletId/campaigns/:campaignId/items", (req, res) => {
-  const campaignId = Number(req.params.campaignId);
-  const rows = db
-    .prepare(
-      `SELECT outlet_campaign_items.item_id,
-              outlet_campaign_items.discount_type,
-              outlet_campaign_items.discount_value,
-              outlet_campaign_items.bundle_name,
-              items.title,
-              outlet_items.base_price
-       FROM outlet_campaign_items
-       JOIN items ON items.id = outlet_campaign_items.item_id
-       LEFT JOIN outlet_items ON outlet_items.item_id = outlet_campaign_items.item_id
-       WHERE outlet_campaign_items.campaign_id = ?`
-    )
-    .all(campaignId);
-  const items = rows.map((row) => ({
-    itemId: row.item_id,
-    title: row.title,
-    basePrice: row.base_price,
-    discount_type: row.discount_type,
-    discount_value: row.discount_value,
-    bundleName: row.bundle_name,
-    currentPrice: computeCurrentPrice(Number(row.base_price || 0), row)
-  }));
-  res.json(items);
-});
-
-app.post("/api/outlets/:outletId/campaigns/:campaignId/items", requireRole(["admin"]), (req, res) => {
-  const outletId = Number(req.params.outletId);
-  const campaignId = Number(req.params.campaignId);
-  const discountType = req.body.discount_type;
-  const discountValue = Number(req.body.discount_value);
-  const bundleName = req.body.bundle_name ?? null;
-  const itemIds = Array.isArray(req.body.item_ids)
-    ? req.body.item_ids.map((id) => Number(id)).filter((id) => !Number.isNaN(id))
-    : [Number(req.body.item_id)];
-
-  if (!itemIds.length || !discountType || Number.isNaN(discountValue)) {
-    return res.status(400).json({ error: "item_id, discount_type, discount_value required" });
-  }
-
-  const placeholders = itemIds.map(() => "?").join(", ");
-  const outletItems = db
-    .prepare(
-      `SELECT item_id FROM outlet_items WHERE outlet_id = ? AND item_id IN (${placeholders})`
-    )
-    .all(outletId, ...itemIds);
-  const allowed = new Set(outletItems.map((row) => row.item_id));
-  const validItemIds = itemIds.filter((id) => allowed.has(id));
-  if (!validItemIds.length) {
-    return res.status(400).json({ error: "Item not in outlet menu" });
-  }
-
-  const insertStmt = db.prepare(
-    `INSERT INTO outlet_campaign_items (campaign_id, item_id, discount_type, discount_value, bundle_name)
-     VALUES (@campaign_id, @item_id, @discount_type, @discount_value, @bundle_name)
-     ON CONFLICT(campaign_id, item_id)
-     DO UPDATE SET
-       discount_type = excluded.discount_type,
-       discount_value = excluded.discount_value,
-       bundle_name = excluded.bundle_name`
-  );
-
-  const insertMany = db.transaction((ids) => {
-    ids.forEach((itemId) => {
-      insertStmt.run({
-        campaign_id: campaignId,
-        item_id: itemId,
-        discount_type: discountType,
-        discount_value: discountValue,
-        bundle_name: bundleName
-      });
-    });
-  });
-  insertMany(validItemIds);
-
-  res.status(201).json({ item_ids: validItemIds });
-});
-
-app.patch("/api/outlets/:outletId/campaigns/:campaignId/items/:itemId", requireRole(["admin"]), (req, res) => {
-  const campaignId = Number(req.params.campaignId);
-  const itemId = Number(req.params.itemId);
-  db.prepare(
-    `UPDATE outlet_campaign_items
-     SET discount_type = COALESCE(@discount_type, discount_type),
-         discount_value = COALESCE(@discount_value, discount_value),
-         bundle_name = COALESCE(@bundle_name, bundle_name)
-     WHERE campaign_id = @campaign_id AND item_id = @item_id`
-  ).run({
-    campaign_id: campaignId,
-    item_id: itemId,
-    discount_type: req.body.discount_type ?? null,
-    discount_value: req.body.discount_value ?? null,
-    bundle_name: req.body.bundle_name ?? null
-  });
-  res.json({ item_id: itemId });
-});
-
-app.delete("/api/outlets/:outletId/campaigns/:campaignId/items/:itemId", requireRole(["admin"]), (req, res) => {
-  const campaignId = Number(req.params.campaignId);
-  const itemId = Number(req.params.itemId);
-  db.prepare(
-    "DELETE FROM outlet_campaign_items WHERE campaign_id = ? AND item_id = ?"
-  ).run(campaignId, itemId);
-  res.status(204).send();
-});
-
 app.get("/api/couriers", (_req, res) => {
   const { status, q } = _req.query;
   const qNumber = q ? Number(q) : null;
@@ -3542,38 +3495,133 @@ app.post(
   }
 );
 
-app.post("/api/orders/:id/cancel", requireRole(["admin", "support", "operator"]), (req, res) => {
-  const id = Number(req.params.id);
-  const order = getOrderStmt.get(id);
-  if (!order) {
-    return res.status(404).json({ error: "Order not found" });
+app.get(
+  "/api/cancel-reasons",
+  requireRole(["admin", "support", "operator"]),
+  (_req, res) => {
+    const rows = listCancelReasonsStmt.all();
+    const grouped = rows.reduce(
+      (acc, row) => {
+        acc[row.group_code].push({
+          code: row.code,
+          group_code: row.group_code,
+          label_ru: row.label_ru,
+          label_uz: row.label_uz,
+          label_kaa: row.label_kaa,
+          label_en: row.label_en,
+          requires_comment: Boolean(row.requires_comment),
+          effects_json: row.effects_json
+        });
+        return acc;
+      },
+      { client: [], partner: [], courier: [] }
+    );
+    res.json({ groups: grouped });
   }
-  const before = { ...order };
-  updateOrderStmt.run({
-    id,
-    status: "cancelled",
-    courier_user_id: null,
-    prep_eta_minutes: null,
-    total_amount: null,
-    delivery_address: null
-  });
-  logOrderEvent({
-    order_id: id,
-    type: "cancelled",
-    payload: { reason: req.body?.reason || null },
-    actor_id: getActorId(req)
-  });
-  const updated = getOrderStmt.get(id);
-  logAudit({
-    entity_type: "order",
-    entity_id: id,
-    action: "cancel",
-    actor_id: getActorId(req),
-    before,
-    after: updated
-  });
-  res.json(updated);
-});
+);
+
+app.post(
+  "/api/orders/:id/cancel",
+  requireRole(["admin", "support", "operator"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const order = getOrderCancelStmt.get(id);
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    if (["delivered", "cancelled"].includes(order.status)) {
+      return res.status(409).json({ error: "Order cannot be cancelled" });
+    }
+
+    const reasonCode = String(req.body?.reason_code || "").trim();
+    if (!reasonCode) {
+      return res.status(400).json({ error: "reason_code required" });
+    }
+    const reason = getCancelReasonStmt.get(reasonCode);
+    if (!reason) {
+      return res.status(404).json({ error: "Cancel reason not found" });
+    }
+    const comment = String(req.body?.comment || "").trim();
+    if (reason.requires_comment && !comment) {
+      return res.status(400).json({ error: "comment required" });
+    }
+    const notifyClient = Boolean(req.body?.notify_client);
+    const clientNotified = Boolean(req.body?.client_notified);
+    const actorId = getActorId(req);
+    const actorRole = getRole(req);
+    const actorTg = getActorTg(req);
+    const effects = parseJsonSafe(reason.effects_json, {});
+    const before = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+
+    updateOrderCancelStmt.run({
+      id,
+      cancelled_at: nowIso()
+    });
+
+    insertOrderCancellationStmt.run({
+      id: crypto.randomUUID(),
+      order_id: id,
+      group_code: reason.group_code,
+      reason_code: reason.code,
+      comment: comment || null,
+      notify_client: notifyClient ? 1 : 0,
+      client_notified: clientNotified ? 1 : 0,
+      effects_json: JSON.stringify(effects),
+      created_by_role: actorRole,
+      created_by_tg_id: actorTg || null,
+      created_at: nowIso()
+    });
+
+    logOrderEvent({
+      order_id: id,
+      type: "cancelled",
+      payload: {
+        reason_code: reason.code,
+        comment: comment || null,
+        notify_client: notifyClient,
+        client_notified: clientNotified,
+        effects
+      },
+      actor_id: actorId
+    });
+
+    if (notifyClient) {
+      logOrderEvent({
+        order_id: id,
+        type: "notify_client",
+        payload: { reason_code: reason.code, comment: comment || null },
+        actor_id: actorId
+      });
+      logAudit({
+        entity_type: "order",
+        entity_id: id,
+        action: "notify_client",
+        actor_id: actorId,
+        before,
+        after: { ...before }
+      });
+    }
+
+    applyCancellationEffects({
+      order,
+      effects,
+      actorRole,
+      actorTg,
+      actorId
+    });
+
+    const updated = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+    logAudit({
+      entity_type: "order",
+      entity_id: id,
+      action: "cancel",
+      actor_id: actorId,
+      before,
+      after: updated
+    });
+    res.json(updated);
+  }
+);
 
 app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"]), (req, res) => {
   const id = Number(req.params.id);
@@ -4517,6 +4565,8 @@ app.delete("/api/finance/ledger/:id", requireRole(["admin"]), (req, res) => {
   deleteLedgerStmt.run(id);
   res.status(204).send();
 });
+
+setupCampaignRoutes({ app, db, requireRole, logAudit, nowIso, parseSort, getActorId });
 
 app.listen(port, () => {
   console.log(`Backend listening on port ${port}`);

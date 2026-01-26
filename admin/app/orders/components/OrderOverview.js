@@ -453,6 +453,7 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
           orderId={order.id}
           role={role}
           titleKey="orders.support.actionsTitle"
+          onCancelled={onOrderUpdated}
         />
       </div>
 

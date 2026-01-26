@@ -20,4 +20,5 @@ sqlite3 data/app.db < migrations/013_promos_extra.sql
 sqlite3 data/app.db < migrations/014_audit_log.sql
 sqlite3 data/app.db < migrations/015_client_addresses.sql
 sqlite3 data/app.db < migrations/016_promo_issues.sql
+sqlite3 data/app.db < migrations/029_order_cancellations.sql
 ```

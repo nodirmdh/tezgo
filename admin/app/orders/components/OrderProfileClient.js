@@ -63,7 +63,9 @@ export default function OrderProfileClient({ orderId, initialOrder }) {
       ...current,
       items: update.items ?? current.items,
       subtotal_food: update.subtotal_food ?? current.subtotal_food,
-      total_amount: update.total_amount ?? current.total_amount
+      total_amount: update.total_amount ?? current.total_amount,
+      status: update.status ?? current.status,
+      cancelled_at: update.cancelled_at ?? current.cancelled_at
     }));
   };
 

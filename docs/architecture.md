@@ -16,6 +16,7 @@
 - Локализация хранится в `admin/lib/i18n.js`, выбор языка сохраняется в cookie `admin_locale` и `localStorage`, сервер читает cookie через `admin/lib/i18n.server.js`.
 - Детальная страница заказа использует `GET /api/orders/:id/details` и данные из `orders` и `order_items`.
 - Обзор заказа использует `POST /api/orders/:id/items` для редактирования корзины с обязательным комментарием, а также `POST /api/orders/:id/notify` и `POST /api/orders/:id/resend` для действий поддержки.
+- Отмена заказа использует `GET /api/cancel-reasons` (справочник причин) и `POST /api/orders/:id/cancel`, сохраняет `order_cancellations`, пишет `order_events`, audit log и финансовые эффекты через `finance_ledger`.
 - Таймлайн заказа строится из `order_events` и SLA-расчетов (`computeOrderSignals`) для минут готовки/доставки и этапов.
 - Глобальные промоакции используют `promo_outlets` для выбора нескольких точек; API `/api/promos` принимает `outlet_ids`.
 - Профиль партнера использует `GET /api/partners/:id/finance` для финансовой сводки и транзакций.
