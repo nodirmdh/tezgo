@@ -533,6 +533,44 @@ textarea {
   padding: 0;
 }
 
+.client-profile-card {
+  display: grid;
+  gap: var(--space-24);
+}
+
+.accordion {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.accordion details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--surface);
+  padding: var(--space-12);
+}
+
+.accordion summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.accordion details > *:not(summary) {
+  margin-top: var(--space-12);
+}
+
+.subscriptions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-16);
+}
+
+.danger-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+}
+
 .cancel-modal-grid {
   display: grid;
   gap: var(--space-16);

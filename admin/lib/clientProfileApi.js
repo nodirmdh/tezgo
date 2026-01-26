@@ -9,7 +9,10 @@ const normalizeClient = (client) => ({
   tg_id: client?.tg_id ?? null,
   username: client?.username ?? null,
   created_at: client?.created_at ?? null,
-  updated_at: client?.updated_at ?? null
+  updated_at: client?.updated_at ?? null,
+  crm_note: client?.crm_note ?? null,
+  crm_updated_at: client?.crm_updated_at ?? null,
+  subscriptions: client?.subscriptions ?? null
 });
 
 const mockClient = (id) => {

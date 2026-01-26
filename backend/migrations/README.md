@@ -21,4 +21,5 @@ sqlite3 data/app.db < migrations/014_audit_log.sql
 sqlite3 data/app.db < migrations/015_client_addresses.sql
 sqlite3 data/app.db < migrations/016_promo_issues.sql
 sqlite3 data/app.db < migrations/029_order_cancellations.sql
+sqlite3 data/app.db < migrations/030_client_profile_v2.sql
 ```

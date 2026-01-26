@@ -8,15 +8,18 @@ const formatDate = (value) => (value ? new Date(value).toLocaleString() : "-");
 export default function ClientOverview({
   client,
   metrics,
-  onEdit,
-  onBlockToggle,
   loading,
   primaryAddress,
   lastPromo,
   onManageAddresses,
-  onViewPromos
+  onViewPromos,
+  phoneVisible,
+  onRevealPhone
 }) {
   const { locale, t } = useLocale();
+  const maskedPhone = client.phone
+    ? client.phone.replace(/(\+?\d{2})\s?(\d{2})\s?\d{3}\s?\d{2}\s?\d{2}/, "$1 $2 *** ** **")
+    : "-";
   return (
     <div className="profile-grid">
       <section className="card profile-card">
@@ -27,8 +30,15 @@ export default function ClientOverview({
         </div>
         <div className="profile-row">
           <span className="muted">{t("clients.fields.phone")}</span>
-          <span>{client.phone || "-"}</span>
+          <span>{phoneVisible ? client.phone || "-" : maskedPhone}</span>
         </div>
+        {!phoneVisible ? (
+          <div className="table-actions">
+            <button className="action-link" type="button" onClick={onRevealPhone}>
+              {t("clients.actions.revealPhone")}
+            </button>
+          </div>
+        ) : null}
         <div className="profile-row">
           <span className="muted">{t("clients.fields.status")}</span>
           <span>{translateStatus(locale, client.status || "-")}</span>
@@ -36,6 +46,14 @@ export default function ClientOverview({
         <div className="profile-row">
           <span className="muted">{t("clients.fields.userId")}</span>
           <span>{client.id}</span>
+        </div>
+        <div className="profile-row">
+          <span className="muted">{t("clients.fields.email")}</span>
+          <span>{client.email || "-"}</span>
+        </div>
+        <div className="profile-row">
+          <span className="muted">{t("clients.fields.passportUid")}</span>
+          <span>{client.passport_uid || "-"}</span>
         </div>
         <div className="profile-row">
           <span className="muted">TG ID</span>
@@ -101,18 +119,6 @@ export default function ClientOverview({
           </button>
           <button className="action-link" type="button" onClick={onViewPromos}>
             {t("clients.overview.viewPromos")}
-          </button>
-        </div>
-      </section>
-
-      <section className="card profile-card">
-        <div className="profile-title">{t("common.actions")}</div>
-        <div className="action-grid">
-          <button className="button" type="button" onClick={onEdit}>
-            {t("common.edit")}
-          </button>
-          <button className="button" type="button" onClick={onBlockToggle}>
-            {client.status === "active" ? t("clients.actions.block") : t("clients.actions.unblock")}
           </button>
         </div>
       </section>

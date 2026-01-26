@@ -42,6 +42,26 @@
 - выплаты партнёру
 - история транзакций
 
+## 2.5 Профиль клиента (CRM v2)
+
+### Требования
+- Read-only карточка данных клиента.
+- CRM комментарий (single note).
+- Подписки: email/push/sms + продуктовые флаги.
+- Danger zone: удалить email / сбросить passport UID / бан/разбан.
+- Аккордеон: Orders, Addresses, Promos, Compensations, Messages, Audit, Notes.
+
+### Backend
+- `GET /api/clients/:id` возвращает `crm_note` и `subscriptions`.
+- `PATCH /api/clients/:id/crm-note` — сохранить CRM note.
+- `PATCH /api/clients/:id/subscriptions` — сохранить подписки.
+- `POST /api/clients/:id/actions` — лог опасных действий (reason required).
+- `GET /api/clients/:id/compensations` — ledger операции клиента.
+- `GET /api/clients/:id/messages` — список сообщений (stub).
+- `GET /api/clients/:id/audit` — audit log.
+
+### Логирование
+- Все действия пишутся в audit log и `client_sensitive_actions`.
 ## 3. Профиль точки (ресторана / магазина)
 
 ### 3.1 Вкладка «Обзор»

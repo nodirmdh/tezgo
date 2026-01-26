@@ -474,6 +474,89 @@ const createUserAuditStmt = db.prepare(
   "INSERT INTO user_audit (user_id, actor, action, before_json, after_json) VALUES (@user_id, @actor, @action, @before_json, @after_json)"
 );
 
+const getClientProfileStmt = db.prepare(
+  `SELECT clients.user_id as id,
+          clients.full_name as name,
+          clients.phone as phone,
+          users.status as status,
+          users.tg_id as tg_id,
+          users.username as username,
+          users.created_at as created_at,
+          users.updated_at as updated_at
+   FROM clients
+   JOIN users ON users.id = clients.user_id
+   WHERE clients.user_id = ?`
+);
+const getClientCrmNoteStmt = db.prepare(
+  `SELECT note, updated_at, updated_by_role, updated_by_tg_id
+   FROM client_crm_notes
+   WHERE client_user_id = ?`
+);
+const upsertClientCrmNoteStmt = db.prepare(
+  `INSERT INTO client_crm_notes
+    (id, client_user_id, note, updated_by_role, updated_by_tg_id, created_at, updated_at)
+   VALUES (@id, @client_user_id, @note, @updated_by_role, @updated_by_tg_id, @created_at, @updated_at)
+   ON CONFLICT(client_user_id) DO UPDATE SET
+     note = excluded.note,
+     updated_by_role = excluded.updated_by_role,
+     updated_by_tg_id = excluded.updated_by_tg_id,
+     updated_at = excluded.updated_at`
+);
+const getClientSubscriptionsStmt = db.prepare(
+  `SELECT client_user_id,
+          email_opt_in,
+          push_opt_in,
+          sms_opt_in,
+          food_email,
+          food_push,
+          food_sms,
+          market_email,
+          market_push,
+          market_sms,
+          taxi_email,
+          taxi_push,
+          taxi_sms,
+          updated_at,
+          updated_by_role,
+          updated_by_tg_id
+   FROM client_subscriptions
+   WHERE client_user_id = ?`
+);
+const upsertClientSubscriptionsStmt = db.prepare(
+  `INSERT INTO client_subscriptions
+    (client_user_id, email_opt_in, push_opt_in, sms_opt_in,
+     food_email, food_push, food_sms,
+     market_email, market_push, market_sms,
+     taxi_email, taxi_push, taxi_sms,
+     updated_at, updated_by_role, updated_by_tg_id)
+   VALUES (@client_user_id, @email_opt_in, @push_opt_in, @sms_opt_in,
+           @food_email, @food_push, @food_sms,
+           @market_email, @market_push, @market_sms,
+           @taxi_email, @taxi_push, @taxi_sms,
+           @updated_at, @updated_by_role, @updated_by_tg_id)
+   ON CONFLICT(client_user_id) DO UPDATE SET
+     email_opt_in = excluded.email_opt_in,
+     push_opt_in = excluded.push_opt_in,
+     sms_opt_in = excluded.sms_opt_in,
+     food_email = excluded.food_email,
+     food_push = excluded.food_push,
+     food_sms = excluded.food_sms,
+     market_email = excluded.market_email,
+     market_push = excluded.market_push,
+     market_sms = excluded.market_sms,
+     taxi_email = excluded.taxi_email,
+     taxi_push = excluded.taxi_push,
+     taxi_sms = excluded.taxi_sms,
+     updated_at = excluded.updated_at,
+     updated_by_role = excluded.updated_by_role,
+     updated_by_tg_id = excluded.updated_by_tg_id`
+);
+const insertClientSensitiveActionStmt = db.prepare(
+  `INSERT INTO client_sensitive_actions
+    (id, client_user_id, action_type, reason, created_by_role, created_by_tg_id, created_at)
+   VALUES (@id, @client_user_id, @action_type, @reason, @created_by_role, @created_by_tg_id, @created_at)`
+);
+
 const createPartnerStmt = db.prepare(
   `INSERT INTO partners
    (name, manager, status, contact_name, phone_primary, phone_secondary, phone_tertiary, email)
@@ -1200,25 +1283,200 @@ app.get("/api/clients", (req, res) => {
 
 app.get("/api/clients/:id", (req, res) => {
   const id = Number(req.params.id);
-  const row = db
-    .prepare(
-      `SELECT clients.user_id as id,
-              clients.full_name as name,
-              clients.phone as phone,
-              users.status as status,
-              users.tg_id as tg_id,
-              users.username as username,
-              users.created_at as created_at,
-              users.updated_at as updated_at
-       FROM clients
-       JOIN users ON users.id = clients.user_id
-       WHERE clients.user_id = ?`
-    )
-    .get(id);
+  const row = getClientProfileStmt.get(id);
   if (!row) {
     return res.status(404).json({ error: "Client not found" });
   }
-  res.json(row);
+  const crm = getClientCrmNoteStmt.get(id);
+  const subscriptions = getClientSubscriptionsStmt.get(id);
+  res.json({
+    ...row,
+    crm_note: crm?.note ?? null,
+    crm_updated_at: crm?.updated_at ?? null,
+    subscriptions: subscriptions || {
+      client_user_id: id,
+      email_opt_in: 0,
+      push_opt_in: 0,
+      sms_opt_in: 0,
+      food_email: 0,
+      food_push: 0,
+      food_sms: 0,
+      market_email: 0,
+      market_push: 0,
+      market_sms: 0,
+      taxi_email: 0,
+      taxi_push: 0,
+      taxi_sms: 0,
+      updated_at: null
+    }
+  });
+});
+
+app.patch(
+  "/api/clients/:id/crm-note",
+  requireRole(["admin", "support", "operator"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const client = db.prepare("SELECT user_id FROM clients WHERE user_id = ?").get(id);
+    if (!client) {
+      return res.status(404).json({ error: "Client not found" });
+    }
+    const note = String(req.body?.note || "").trim();
+    if (!note) {
+      return res.status(400).json({ error: "note required" });
+    }
+    const now = nowIso();
+    upsertClientCrmNoteStmt.run({
+      id: crypto.randomUUID(),
+      client_user_id: id,
+      note,
+      updated_by_role: getRole(req),
+      updated_by_tg_id: getActorTg(req),
+      created_at: now,
+      updated_at: now
+    });
+    logAudit({
+      entity_type: "client",
+      entity_id: id,
+      action: "crm_note_update",
+      actor_id: getActorId(req),
+      before: null,
+      after: { note }
+    });
+    res.json({ note, updated_at: now });
+  }
+);
+
+app.patch(
+  "/api/clients/:id/subscriptions",
+  requireRole(["admin", "support", "operator"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const client = db.prepare("SELECT user_id FROM clients WHERE user_id = ?").get(id);
+    if (!client) {
+      return res.status(404).json({ error: "Client not found" });
+    }
+    const payload = {
+      client_user_id: id,
+      email_opt_in: req.body?.email_opt_in ? 1 : 0,
+      push_opt_in: req.body?.push_opt_in ? 1 : 0,
+      sms_opt_in: req.body?.sms_opt_in ? 1 : 0,
+      food_email: req.body?.food_email ? 1 : 0,
+      food_push: req.body?.food_push ? 1 : 0,
+      food_sms: req.body?.food_sms ? 1 : 0,
+      market_email: req.body?.market_email ? 1 : 0,
+      market_push: req.body?.market_push ? 1 : 0,
+      market_sms: req.body?.market_sms ? 1 : 0,
+      taxi_email: req.body?.taxi_email ? 1 : 0,
+      taxi_push: req.body?.taxi_push ? 1 : 0,
+      taxi_sms: req.body?.taxi_sms ? 1 : 0,
+      updated_at: nowIso(),
+      updated_by_role: getRole(req),
+      updated_by_tg_id: getActorTg(req)
+    };
+    upsertClientSubscriptionsStmt.run(payload);
+    logAudit({
+      entity_type: "client",
+      entity_id: id,
+      action: "subscriptions_update",
+      actor_id: getActorId(req),
+      before: null,
+      after: payload
+    });
+    res.json(payload);
+  }
+);
+
+app.post(
+  "/api/clients/:id/actions",
+  requireRole(["admin", "support", "operator"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const client = db.prepare("SELECT user_id FROM clients WHERE user_id = ?").get(id);
+    if (!client) {
+      return res.status(404).json({ error: "Client not found" });
+    }
+    const actionType = String(req.body?.action_type || "").trim();
+    const reason = String(req.body?.reason || "").trim();
+    if (!actionType) {
+      return res.status(400).json({ error: "action_type required" });
+    }
+    if (!reason) {
+      return res.status(400).json({ error: "reason required" });
+    }
+    const entry = {
+      id: crypto.randomUUID(),
+      client_user_id: id,
+      action_type: actionType,
+      reason,
+      created_by_role: getRole(req),
+      created_by_tg_id: getActorTg(req),
+      created_at: nowIso()
+    };
+    insertClientSensitiveActionStmt.run(entry);
+    logAudit({
+      entity_type: "client",
+      entity_id: id,
+      action: actionType,
+      actor_id: getActorId(req),
+      before: null,
+      after: entry
+    });
+    res.status(201).json(entry);
+  }
+);
+
+app.get("/api/clients/:id/compensations", (req, res) => {
+  const id = Number(req.params.id);
+  const client = db.prepare("SELECT user_id FROM clients WHERE user_id = ?").get(id);
+  if (!client) {
+    return res.status(404).json({ error: "Client not found" });
+  }
+  const rows = db
+    .prepare(
+      `SELECT id, title, amount, status, type, created_at, order_id
+       FROM finance_ledger
+       WHERE user_id = ?
+         AND type IN ('compensation','refund','promo')
+       ORDER BY created_at DESC`
+    )
+    .all(id);
+  res.json(rows);
+});
+
+app.get("/api/clients/:id/messages", (req, res) => {
+  const id = Number(req.params.id);
+  const client = db.prepare("SELECT user_id FROM clients WHERE user_id = ?").get(id);
+  if (!client) {
+    return res.status(404).json({ error: "Client not found" });
+  }
+  res.json([]);
+});
+
+app.get("/api/clients/:id/audit", (req, res) => {
+  const id = Number(req.params.id);
+  const client = db.prepare("SELECT user_id FROM clients WHERE user_id = ?").get(id);
+  if (!client) {
+    return res.status(404).json({ error: "Client not found" });
+  }
+  const rows = db
+    .prepare(
+      `SELECT audit_log.id,
+              audit_log.entity_type,
+              audit_log.entity_id,
+              audit_log.action,
+              audit_log.actor_user_id,
+              audit_log.before_json,
+              audit_log.after_json,
+              audit_log.created_at
+       FROM audit_log
+       WHERE audit_log.entity_type = 'client'
+         AND audit_log.entity_id = ?
+       ORDER BY audit_log.created_at DESC
+       LIMIT 50`
+    )
+    .all(String(id));
+  res.json(rows);
 });
 
 app.patch("/api/clients/:id", requireRole(["admin", "support", "operator"]), (req, res) => {

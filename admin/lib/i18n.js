@@ -524,7 +524,20 @@ const translations = {
         block: "Заблокировать",
         unblock: "Разблокировать",
         blockConfirm: "Заблокировать клиента?",
-        unblockConfirm: "Разблокировать клиента?"
+        unblockConfirm: "Разблокировать клиента?",
+        revealPhone: "Показать телефон",
+        revealReason: "Причина просмотра телефона"
+      },
+      fields: {
+        name: "Имя",
+        phone: "Телефон",
+        status: "Статус",
+        userId: "ID клиента",
+        createdAt: "Создан",
+        updatedAt: "Обновлен",
+        lastOrder: "Последний заказ",
+        email: "Email",
+        passportUid: "Passport UID"
       },
       overview: {
         details: "Детали клиента",
@@ -550,6 +563,64 @@ const translations = {
         note: "Заметка",
         placeholder: "Добавить заметку...",
         support: "саппорт"
+      },
+      crm: {
+        title: "CRM комментарий",
+        label: "Комментарий",
+        placeholder: "Добавьте внутренний комментарий",
+        updatedAt: "Обновлено",
+        noUpdates: "Пока нет обновлений",
+        saving: "Сохранение...",
+        saved: "CRM комментарий сохранен"
+      },
+      subscriptions: {
+        title: "Подписки",
+        channels: "Каналы",
+        email: "Email",
+        push: "Push",
+        sms: "SMS",
+        food: "Food",
+        market: "Market",
+        taxi: "Taxi",
+        saving: "Сохранение...",
+        saved: "Подписки сохранены"
+      },
+      danger: {
+        title: "Опасные действия",
+        deleteEmail: "Удалить email",
+        resetPassport: "Сбросить passport UID",
+        banClient: "Забанить клиента",
+        unbanClient: "Разбанить клиента",
+        reasonTitle: "Причина действия",
+        reasonLabel: "Причина",
+        reasonPlaceholder: "Укажите причину",
+        confirm: "Подтвердить",
+        actionLogged: "Действие зафиксировано"
+      },
+      accordion: {
+        orders: "Заказы",
+        addresses: "Адреса",
+        promos: "Промокоды",
+        compensations: "Компенсации",
+        messages: "Сообщения",
+        audit: "Аудит",
+        notes: "Заметки"
+      },
+      compensations: {
+        empty: "Компенсаций пока нет",
+        table: {
+          title: "Операция",
+          amount: "Сумма",
+          type: "Тип",
+          order: "Заказ",
+          date: "Дата"
+        }
+      },
+      messages: {
+        empty: "Сообщений пока нет"
+      },
+      audit: {
+        empty: "Записей пока нет"
       },
       addresses: {
         title: "Адреса",
@@ -1620,7 +1691,20 @@ const translations = {
         block: "Mijozni bloklash",
         unblock: "Blokdan chiqarish",
         blockConfirm: "Mijozni bloklaysizmi?",
-        unblockConfirm: "Mijozni blokdan chiqarasizmi?"
+        unblockConfirm: "Mijozni blokdan chiqarasizmi?",
+        revealPhone: "Telefonni ko'rsatish",
+        revealReason: "Telefonni ko'rish sababi"
+      },
+      fields: {
+        name: "Ism",
+        phone: "Telefon",
+        status: "Holat",
+        userId: "Mijoz ID",
+        createdAt: "Yaratilgan",
+        updatedAt: "Yangilangan",
+        lastOrder: "So'nggi buyurtma",
+        email: "Email",
+        passportUid: "Passport UID"
       },
       overview: {
         details: "Mijoz tafsilotlari",
@@ -1646,6 +1730,64 @@ const translations = {
         note: "Izoh",
         placeholder: "Izoh yozing...",
         support: "Qo'llab-quvvatlash izohi"
+      },
+      crm: {
+        title: "CRM izohi",
+        label: "Izoh",
+        placeholder: "Ichki izoh yozing",
+        updatedAt: "Yangilangan",
+        noUpdates: "Hozircha yangilanish yo'q",
+        saving: "Saqlanmoqda...",
+        saved: "CRM izohi saqlandi"
+      },
+      subscriptions: {
+        title: "Obunalar",
+        channels: "Kanallar",
+        email: "Email",
+        push: "Push",
+        sms: "SMS",
+        food: "Food",
+        market: "Market",
+        taxi: "Taxi",
+        saving: "Saqlanmoqda...",
+        saved: "Obunalar saqlandi"
+      },
+      danger: {
+        title: "Xavfli amallar",
+        deleteEmail: "Emailni o'chirish",
+        resetPassport: "Passport UIDni tiklash",
+        banClient: "Mijozni bloklash",
+        unbanClient: "Blokdan chiqarish",
+        reasonTitle: "Amal sababi",
+        reasonLabel: "Sabab",
+        reasonPlaceholder: "Sababni yozing",
+        confirm: "Tasdiqlash",
+        actionLogged: "Amal qayd etildi"
+      },
+      accordion: {
+        orders: "Buyurtmalar",
+        addresses: "Manzillar",
+        promos: "Promolar",
+        compensations: "Kompensatsiyalar",
+        messages: "Xabarlar",
+        audit: "Audit",
+        notes: "Izohlar"
+      },
+      compensations: {
+        empty: "Kompensatsiya yo'q",
+        table: {
+          title: "Operatsiya",
+          amount: "Summa",
+          type: "Turi",
+          order: "Buyurtma",
+          date: "Sana"
+        }
+      },
+      messages: {
+        empty: "Xabarlar yo'q"
+      },
+      audit: {
+        empty: "Yozuvlar yo'q"
       },
       addresses: {
         title: "Manzillar",
@@ -2361,6 +2503,81 @@ const translations = {
         }
       }
     },
+    clients: {
+      actions: {
+        revealPhone: "Telefon kórsetiw",
+        revealReason: "Telefon kóriw sebebi"
+      },
+      fields: {
+        name: "Atı",
+        phone: "Telefon",
+        status: "Hálat",
+        userId: "Klient ID",
+        createdAt: "Jaralǵan",
+        updatedAt: "Jańalanǵan",
+        lastOrder: "Sońǵı buyırtpa",
+        email: "Email",
+        passportUid: "Passport UID"
+      },
+      crm: {
+        title: "CRM pikir",
+        label: "Pikir",
+        placeholder: "Ishki pikir jazıń",
+        updatedAt: "Jańalanǵan",
+        noUpdates: "Ázir jańalanıw joq",
+        saving: "Saqtalanıwda...",
+        saved: "CRM pikir saqtaldı"
+      },
+      subscriptions: {
+        title: "Obunalar",
+        channels: "Kanallar",
+        email: "Email",
+        push: "Push",
+        sms: "SMS",
+        food: "Food",
+        market: "Market",
+        taxi: "Taxi",
+        saving: "Saqtalanıwda...",
+        saved: "Obunalar saqtaldı"
+      },
+      danger: {
+        title: "Qawipli ámeller",
+        deleteEmail: "Email óshiriw",
+        resetPassport: "Passport UID jańalaw",
+        banClient: "Klientti bloklaw",
+        unbanClient: "Bloktan shıǵarıw",
+        reasonTitle: "Ámel sebebi",
+        reasonLabel: "Sebep",
+        reasonPlaceholder: "Sebebin jazıń",
+        confirm: "Tastıyqlaw",
+        actionLogged: "Ámel qayd etildi"
+      },
+      accordion: {
+        orders: "Buyırtpalar",
+        addresses: "Adresler",
+        promos: "Promokodlar",
+        compensations: "Kompensaciyalar",
+        messages: "Habarlar",
+        audit: "Audit",
+        notes: "Izohlar"
+      },
+      compensations: {
+        empty: "Kompensaciya joq",
+        table: {
+          title: "Operaciya",
+          amount: "Somma",
+          type: "Túri",
+          order: "Buyırtpa",
+          date: "Sáni"
+        }
+      },
+      messages: {
+        empty: "Habar joq"
+      },
+      audit: {
+        empty: "Jazıw joq"
+      }
+    },
     status: {
       active: "Faol",
       blocked: "Bloklandı",
@@ -2913,7 +3130,20 @@ const translations = {
         block: "Block client",
         unblock: "Unblock client",
         blockConfirm: "Block this client?",
-        unblockConfirm: "Unblock this client?"
+        unblockConfirm: "Unblock this client?",
+        revealPhone: "Reveal phone",
+        revealReason: "Reason for phone access"
+      },
+      fields: {
+        name: "Name",
+        phone: "Phone",
+        status: "Status",
+        userId: "Client ID",
+        createdAt: "Created",
+        updatedAt: "Updated",
+        lastOrder: "Last order",
+        email: "Email",
+        passportUid: "Passport UID"
       },
       overview: {
         details: "Client details",
@@ -2939,6 +3169,64 @@ const translations = {
         note: "Note",
         placeholder: "Write a note...",
         support: "Support note"
+      },
+      crm: {
+        title: "CRM note",
+        label: "Note",
+        placeholder: "Add internal note",
+        updatedAt: "Updated",
+        noUpdates: "No updates yet",
+        saving: "Saving...",
+        saved: "CRM note saved"
+      },
+      subscriptions: {
+        title: "Subscriptions",
+        channels: "Channels",
+        email: "Email",
+        push: "Push",
+        sms: "SMS",
+        food: "Food",
+        market: "Market",
+        taxi: "Taxi",
+        saving: "Saving...",
+        saved: "Subscriptions saved"
+      },
+      danger: {
+        title: "Danger zone",
+        deleteEmail: "Delete email",
+        resetPassport: "Reset passport UID",
+        banClient: "Ban client",
+        unbanClient: "Unban client",
+        reasonTitle: "Reason",
+        reasonLabel: "Reason",
+        reasonPlaceholder: "Provide a reason",
+        confirm: "Confirm",
+        actionLogged: "Action logged"
+      },
+      accordion: {
+        orders: "Orders",
+        addresses: "Addresses",
+        promos: "Promos",
+        compensations: "Compensations",
+        messages: "Messages",
+        audit: "Audit",
+        notes: "Notes"
+      },
+      compensations: {
+        empty: "No compensations yet",
+        table: {
+          title: "Operation",
+          amount: "Amount",
+          type: "Type",
+          order: "Order",
+          date: "Date"
+        }
+      },
+      messages: {
+        empty: "No messages yet"
+      },
+      audit: {
+        empty: "No records yet"
       },
       addresses: {
         title: "Addresses",

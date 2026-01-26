@@ -6,6 +6,24 @@
 ## Clients
 - user_id, phone, full_name, birth_date
 
+## Client CRM Notes
+- id, client_user_id, note
+- updated_by_role, updated_by_tg_id
+- created_at, updated_at
+
+## Client Subscriptions
+- client_user_id
+- email_opt_in, push_opt_in, sms_opt_in
+- food_email, food_push, food_sms
+- market_email, market_push, market_sms
+- taxi_email, taxi_push, taxi_sms
+- updated_at, updated_by_role, updated_by_tg_id
+
+## Client Sensitive Actions
+- id, client_user_id
+- action_type, reason
+- created_by_role, created_by_tg_id, created_at
+
 ## Partners
 - id, name
 

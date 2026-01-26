@@ -2,12 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Toast from "../../components/Toast";
-import ClientTabs from "./ClientTabs";
 import ClientOverview from "./ClientOverview";
 import ClientOrders from "./ClientOrders";
 import ClientNotes from "./ClientNotes";
 import ClientAddresses from "./ClientAddresses";
 import ClientPromos from "./ClientPromos";
+import ClientCrmNote from "./ClientCrmNote";
+import ClientSubscriptions from "./ClientSubscriptions";
+import ClientDangerZone from "./ClientDangerZone";
+import ClientCompensations from "./ClientCompensations";
+import ClientMessages from "./ClientMessages";
+import ClientAudit from "./ClientAudit";
 import { apiJson } from "../../../lib/api/client";
 import { normalizeRole } from "../../../lib/rbac";
 import { getClientAddresses } from "../../../lib/api/clientAddressesApi";
@@ -24,7 +29,6 @@ const emptyMetrics = {
 
 export default function ClientProfileClient({ clientId, initialClient }) {
   const { locale, t } = useLocale();
-  const [activeTab, setActiveTab] = useState("overview");
   const [client, setClient] = useState(initialClient);
   const [metrics, setMetrics] = useState(emptyMetrics);
   const [metricsLoading, setMetricsLoading] = useState(false);
@@ -42,6 +46,28 @@ export default function ClientProfileClient({ clientId, initialClient }) {
   const [addressesLoading, setAddressesLoading] = useState(false);
   const [promos, setPromos] = useState([]);
   const [promosLoading, setPromosLoading] = useState(false);
+  const [crmNote, setCrmNote] = useState(initialClient?.crm_note || "");
+  const [crmSaving, setCrmSaving] = useState(false);
+  const [subscriptions, setSubscriptions] = useState(
+    initialClient?.subscriptions || null
+  );
+  const [subscriptionsSaving, setSubscriptionsSaving] = useState(false);
+  const [compensations, setCompensations] = useState([]);
+  const [compensationsLoading, setCompensationsLoading] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [audit, setAudit] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [phoneVisible, setPhoneVisible] = useState(false);
+  const [accordion, setAccordion] = useState({
+    orders: false,
+    addresses: false,
+    promos: false,
+    notes: false,
+    compensations: false,
+    messages: false,
+    audit: false
+  });
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [role, setRole] = useState("support");
@@ -123,68 +149,87 @@ export default function ClientProfileClient({ clientId, initialClient }) {
     setPromosLoading(false);
   };
 
-  useEffect(() => {
-    if (activeTab === "overview") {
-      loadMetrics();
-      loadAddresses();
-      loadPromos();
+  const loadCompensations = async () => {
+    setCompensationsLoading(true);
+    const result = await apiJson(`/api/clients/${clientId}/compensations`);
+    if (!result.ok) {
+      setError(result.error);
+      setCompensationsLoading(false);
+      return;
     }
-    if (activeTab === "orders") {
+    setCompensations(result.data);
+    setCompensationsLoading(false);
+  };
+
+  const loadMessages = async () => {
+    setMessagesLoading(true);
+    const result = await apiJson(`/api/clients/${clientId}/messages`);
+    if (!result.ok) {
+      setError(result.error);
+      setMessagesLoading(false);
+      return;
+    }
+    setMessages(result.data);
+    setMessagesLoading(false);
+  };
+
+  const loadAudit = async () => {
+    setAuditLoading(true);
+    const result = await apiJson(`/api/clients/${clientId}/audit`);
+    if (!result.ok) {
+      setError(result.error);
+      setAuditLoading(false);
+      return;
+    }
+    setAudit(result.data);
+    setAuditLoading(false);
+  };
+
+  useEffect(() => {
+    loadMetrics();
+  }, [clientId]);
+
+  useEffect(() => {
+    if (accordion.orders) {
       loadOrders(orderFilters);
     }
-    if (activeTab === "notes") {
+  }, [accordion.orders, orderFilters]);
+
+  useEffect(() => {
+    if (accordion.notes) {
       loadNotes();
     }
-    if (activeTab === "addresses") {
+  }, [accordion.notes]);
+
+  useEffect(() => {
+    if (accordion.addresses) {
       loadAddresses();
     }
-    if (activeTab === "promos") {
+  }, [accordion.addresses]);
+
+  useEffect(() => {
+    if (accordion.promos) {
       loadPromos();
     }
-  }, [activeTab, orderFilters]);
+  }, [accordion.promos]);
 
-  const handleEdit = async () => {
-    const name = window.prompt(t("clients.prompts.name"), client.name || "");
-    if (name === null) {
-      return;
+  useEffect(() => {
+    if (accordion.compensations) {
+      loadCompensations();
     }
-    const phone = window.prompt(t("clients.prompts.phone"), client.phone || "");
-    if (phone === null) {
-      return;
-    }
-    const result = await apiJson(`/api/clients/${clientId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ name, phone })
-    });
-    if (!result.ok) {
-      setToast({ type: "error", message: t(result.error) });
-      return;
-    }
-    setClient(result.data);
-    setToast({ type: "success", message: t("clients.toasts.updated") });
-  };
+  }, [accordion.compensations]);
 
-  const handleBlockToggle = async () => {
-    const confirmText =
-      client.status === "active"
-        ? t("clients.actions.blockConfirm")
-        : t("clients.actions.unblockConfirm");
-    if (!window.confirm(confirmText)) {
-      return;
+  useEffect(() => {
+    if (accordion.messages) {
+      loadMessages();
     }
-    const result = await apiJson(`/api/clients/${clientId}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        status: client.status === "active" ? "blocked" : "active"
-      })
-    });
-    if (!result.ok) {
-      setToast({ type: "error", message: t(result.error) });
-      return;
+  }, [accordion.messages]);
+
+  useEffect(() => {
+    if (accordion.audit) {
+      loadAudit();
     }
-    setClient(result.data);
-    setToast({ type: "success", message: t("clients.toasts.statusUpdated") });
-  };
+  }, [accordion.audit]);
 
   const handleAddNote = async (text) => {
     const result = await apiJson(`/api/clients/${clientId}/notes`, {
@@ -211,11 +256,90 @@ export default function ClientProfileClient({ clientId, initialClient }) {
     setToast({ type: "success", message: t("clients.toasts.noteDeleted") });
   };
 
+  const handleSaveCrmNote = async (note) => {
+    setCrmSaving(true);
+    const result = await apiJson(`/api/clients/${clientId}/crm-note`, {
+      method: "PATCH",
+      body: JSON.stringify({ note })
+    });
+    if (!result.ok) {
+      setToast({ type: "error", message: t(result.error) });
+      setCrmSaving(false);
+      return;
+    }
+    setCrmNote(result.data.note);
+    setToast({ type: "success", message: t("clients.crm.saved") });
+    setCrmSaving(false);
+  };
+
+  const handleSaveSubscriptions = async (payload) => {
+    setSubscriptionsSaving(true);
+    const result = await apiJson(`/api/clients/${clientId}/subscriptions`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    if (!result.ok) {
+      setToast({ type: "error", message: t(result.error) });
+      setSubscriptionsSaving(false);
+      return;
+    }
+    setSubscriptions(result.data);
+    setToast({ type: "success", message: t("clients.subscriptions.saved") });
+    setSubscriptionsSaving(false);
+  };
+
+  const handleSensitiveAction = async (actionType, reason) => {
+    const result = await apiJson(`/api/clients/${clientId}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action_type: actionType, reason })
+    });
+    if (!result.ok) {
+      setToast({ type: "error", message: t(result.error) });
+      return { ok: false };
+    }
+    setToast({ type: "success", message: t("clients.danger.actionLogged") });
+    return { ok: true };
+  };
+
+  const handleBanToggle = async (reason) => {
+    const nextStatus = client.status === "active" ? "blocked" : "active";
+    const actionType = nextStatus === "blocked" ? "ban_client" : "unban_client";
+    const logged = await handleSensitiveAction(actionType, reason);
+    if (!logged.ok) {
+      return;
+    }
+    const result = await apiJson(`/api/clients/${clientId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: nextStatus })
+    });
+    if (!result.ok) {
+      setToast({ type: "error", message: t(result.error) });
+      return;
+    }
+    setClient(result.data);
+  };
+
+  const handleRevealPhone = async () => {
+    const reason = window.prompt(t("clients.actions.revealReason"), "");
+    if (reason === null || !reason.trim()) {
+      return;
+    }
+    const logged = await handleSensitiveAction("reveal_phone", reason);
+    if (!logged.ok) {
+      return;
+    }
+    setPhoneVisible(true);
+  };
+
   const primaryAddress = useMemo(
     () => addresses.find((address) => address.is_primary),
     [addresses]
   );
   const lastPromo = useMemo(() => promos[0] || null, [promos]);
+  const openAccordion = (key) =>
+    setAccordion((prev) => ({ ...prev, [key]: true }));
+  const toggleAccordion = (key) =>
+    setAccordion((prev) => ({ ...prev, [key]: !prev[key] }));
 
   return (
     <div className="profile-wrapper">
@@ -237,61 +361,124 @@ export default function ClientProfileClient({ clientId, initialClient }) {
         </div>
       </div>
       {error ? <div className="banner error">{t(error)}</div> : null}
-      <ClientTabs active={activeTab} onChange={setActiveTab} />
-      {activeTab === "overview" ? (
+      <section className="card profile-card client-profile-card">
         <ClientOverview
           client={client}
           metrics={metrics}
           loading={metricsLoading}
-          onEdit={handleEdit}
-          onBlockToggle={handleBlockToggle}
           primaryAddress={primaryAddress}
           lastPromo={lastPromo}
-          onManageAddresses={() => setActiveTab("addresses")}
-          onViewPromos={() => setActiveTab("promos")}
+          phoneVisible={phoneVisible}
+          onRevealPhone={handleRevealPhone}
+          onManageAddresses={() => openAccordion("addresses")}
+          onViewPromos={() => openAccordion("promos")}
         />
-      ) : null}
-      {activeTab === "orders" ? (
-        <ClientOrders
-          data={orders}
-          filters={orderFilters}
-          loading={ordersLoading}
-          error={error}
-          onFilterChange={setOrderFilters}
-          onPageChange={(page) => setOrderFilters({ ...orderFilters, page })}
-        />
-      ) : null}
-      {activeTab === "addresses" ? (
-        <ClientAddresses
-          clientId={clientId}
-          addresses={addresses}
-          loading={addressesLoading}
-          error={error}
-          role={role}
-          onReload={loadAddresses}
-        />
-      ) : null}
-      {activeTab === "promos" ? (
-        <ClientPromos
-          clientId={clientId}
-          promos={promos}
-          loading={promosLoading}
-          error={error}
-          role={role}
-          onReload={loadPromos}
-        />
-      ) : null}
-      {activeTab === "notes" ? (
-        <ClientNotes
-          notes={notes}
-          role={role}
-          authorTgId={authorTgId}
-          loading={notesLoading}
-          error={error}
-          onAdd={handleAddNote}
-          onDelete={handleDeleteNote}
-        />
-      ) : null}
+
+        <div className="profile-section">
+          <ClientCrmNote
+            value={crmNote}
+            updatedAt={client.crm_updated_at}
+            saving={crmSaving}
+            onSave={handleSaveCrmNote}
+          />
+        </div>
+
+        <div className="profile-section">
+          <ClientSubscriptions
+            value={subscriptions}
+            saving={subscriptionsSaving}
+            onSave={handleSaveSubscriptions}
+          />
+        </div>
+
+        <div className="profile-section">
+          <ClientDangerZone
+            status={client.status}
+            onAction={handleSensitiveAction}
+            onBanToggle={handleBanToggle}
+          />
+        </div>
+
+        <div className="profile-section">
+          <div className="accordion">
+            <details open={accordion.orders} onToggle={() => toggleAccordion("orders")}>
+              <summary>{t("clients.accordion.orders")}</summary>
+              <ClientOrders
+                data={orders}
+                filters={orderFilters}
+                loading={ordersLoading}
+                error={error}
+                onFilterChange={setOrderFilters}
+                onPageChange={(page) => setOrderFilters({ ...orderFilters, page })}
+              />
+            </details>
+
+            <details open={accordion.addresses} onToggle={() => toggleAccordion("addresses")}>
+              <summary>{t("clients.accordion.addresses")}</summary>
+              <ClientAddresses
+                clientId={clientId}
+                addresses={addresses}
+                loading={addressesLoading}
+                error={error}
+                role={role}
+                onReload={loadAddresses}
+              />
+            </details>
+
+            <details open={accordion.promos} onToggle={() => toggleAccordion("promos")}>
+              <summary>{t("clients.accordion.promos")}</summary>
+              <ClientPromos
+                clientId={clientId}
+                promos={promos}
+                loading={promosLoading}
+                error={error}
+                role={role}
+                onReload={loadPromos}
+              />
+            </details>
+
+            <details open={accordion.compensations} onToggle={() => toggleAccordion("compensations")}>
+              <summary>{t("clients.accordion.compensations")}</summary>
+              <ClientCompensations
+                data={compensations}
+                loading={compensationsLoading}
+                error={error}
+              />
+            </details>
+
+            <details open={accordion.messages} onToggle={() => toggleAccordion("messages")}>
+              <summary>{t("clients.accordion.messages")}</summary>
+              <ClientMessages
+                data={messages}
+                loading={messagesLoading}
+                error={error}
+              />
+            </details>
+
+            <details open={accordion.audit} onToggle={() => toggleAccordion("audit")}>
+              <summary>{t("clients.accordion.audit")}</summary>
+              <ClientAudit
+                data={audit}
+                loading={auditLoading}
+                error={error}
+              />
+            </details>
+
+            <details open={accordion.notes} onToggle={() => toggleAccordion("notes")}>
+              <summary>{t("clients.accordion.notes")}</summary>
+              <ClientNotes
+                notes={notes}
+                role={role}
+                authorTgId={authorTgId}
+                loading={notesLoading}
+                error={error}
+                onAdd={handleAddNote}
+                onDelete={handleDeleteNote}
+              />
+            </details>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
