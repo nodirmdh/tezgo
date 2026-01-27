@@ -958,6 +958,8 @@ export const initDb = () => {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   runMigrations(db);
-  seedIfEmpty(db);
+  if (process.env.SEED_DATA === "true") {
+    seedIfEmpty(db);
+  }
   return db;
 };
