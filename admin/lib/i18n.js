@@ -700,7 +700,7 @@ const translations = {
         offline: "офлайн"
       },
       toasts: {
-        updated: "?????? ??????? ?????????",
+        updated: "Данные курьера обновлены",
         statusUpdated: "Статус обновлен",
         noteAdded: "Заметка добавлена",
         noteDeleted: "Заметка удалена"
@@ -709,10 +709,10 @@ const translations = {
         title: "Обзор"
       },
       fields: {
-        fullName: "???",
-        address: "?????",
-        deliveryMethods: "??????? ????????",
-        ratingCount: "?????????? ?????????",
+        fullName: "ФИО",
+        address: "Адрес",
+        deliveryMethods: "Способы доставки",
+        ratingCount: "Количество оценок",
         name: "Имя",
         phone: "Телефон",
         status: "Статус",
@@ -722,9 +722,9 @@ const translations = {
         updatedAt: "Обновлен"
       },
       methods: {
-        walk: "??????",
-        bike: "?????????",
-        car: "???? / ????"
+        walk: "Пешком",
+        bike: "Велосипед",
+        car: "Авто / Мото"
       },
 
       actions: {
@@ -1019,8 +1019,8 @@ const translations = {
       },
       menu: {
         title: "Меню / Товары",
-        addItem: "???????? ???????",
-        createItem: "??????? ???????",
+        addItem: "Добавить позицию",
+        createItem: "Создать позицию",
         search: "Поиск по названию или SKU",
         empty: "Товаров пока нет",
         sale: "СКИДКА",
@@ -1046,9 +1046,9 @@ const translations = {
           title: "Название",
           category: "Категория",
           sku: "SKU",
-          weight: "???",
-          photo: "????",
-          photoLink: "???????",
+          weight: "Вес",
+          photo: "Фото",
+          photoLink: "Открыть",
           basePrice: "Базовая цена",
           currentPrice: "Текущая цена",
           availability: "Доступность",
@@ -1056,14 +1056,14 @@ const translations = {
           updated: "Обновлено"
         },
         form: {
-          title: "????????",
-          category: "?????????",
+          title: "Название",
+          category: "Категория",
           sku: "SKU",
-          description: "????????",
-          photoUrl: "???? (URL)",
-          weight: "??? (?)",
-          unavailableReason: "??????? ????-?????",
-          unavailableUntil: "??????????????????",
+          description: "Описание",
+          photoUrl: "Фото (URL)",
+          weight: "Вес (г)",
+          unavailableReason: "Причина недоступности",
+          unavailableUntil: "Недоступно до",
           basePrice: "Базовая цена",
           stock: "Остаток",
           availability: "Доступность",
@@ -1073,24 +1073,24 @@ const translations = {
           available: "Сделать доступным?",
           unavailable: "Сделать недоступным?",
           description: "Доступность будет обновлена сразу.",
-          deleteTitle: "??????? ????????",
-          deleteDescription: "??????? ????? ??????? ?? ????."
+          deleteTitle: "Удалить товар?",
+          deleteDescription: "Товар будет удален из меню."
         },
         toasts: {
           updated: "Товар обновлен",
           availabilityUpdated: "Доступность обновлена",
-          created: "??????? ?????????",
-          deleted: "??????? ???????"
+          created: "Товар добавлен",
+          deleted: "Товар удален"
         },
         prompts: {
-          unavailableReason: "??????? ????-?????"
+          unavailableReason: "Причина недоступности"
         },
         validation: {
-          required: "???????? ? ???? ???????????",
-          reasonRequired: "??????? ??????? ????-?????"
+          required: "Название и цена обязательны",
+          reasonRequired: "Укажите причину недоступности"
         },
         stoplist: {
-          noReason: "??????? ?? ???????"
+          noReason: "Причина не указана"
         },
         historyTable: {
           old: "Старая цена",
