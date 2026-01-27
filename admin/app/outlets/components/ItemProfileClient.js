@@ -206,6 +206,23 @@ export default function ItemProfileClient({ outletId, itemId, initialItem }) {
   const handleSave = async () => {
     if (saving) return;
 
+    if (canEditAvailability) {
+      if (draft.stoplistActive && !draft.stoplistReason.trim()) {
+        setToast({
+          type: "error",
+          message: t("outlets.menu.profile.validation.stoplistReasonRequired")
+        });
+        return;
+      }
+      if (!draft.stoplistActive && !draft.isAvailable && !draft.unavailableReason.trim()) {
+        setToast({
+          type: "error",
+          message: t("outlets.menu.profile.validation.unavailableReasonRequired")
+        });
+        return;
+      }
+    }
+
     const payload = {};
     if (canEditDetails) {
       payload.title = draft.title.trim();
