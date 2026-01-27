@@ -13,11 +13,117 @@ const deliveryOptions = [
   { value: "pickup", labelKey: "outlets.menu.profile.delivery.pickup" }
 ];
 
+const normalizeCategoryValue = (value) => String(value ?? "").trim().toLowerCase();
+
+const CategoryCombobox = ({
+  value,
+  onChange,
+  options,
+  placeholder,
+  disabled,
+  createLabel
+}) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value ?? "");
+
+  useEffect(() => {
+    setQuery(value ?? "");
+  }, [value]);
+
+  const normalizedQuery = normalizeCategoryValue(query);
+  const filtered = useMemo(() => {
+    if (!normalizedQuery) {
+      return options.slice(0, 6);
+    }
+    return options
+      .filter((option) =>
+        normalizeCategoryValue(option.name).includes(normalizedQuery)
+      )
+      .slice(0, 6);
+  }, [options, normalizedQuery]);
+
+  const exactMatch = useMemo(
+    () =>
+      options.find(
+        (option) =>
+          normalizeCategoryValue(option.name) === normalizedQuery && normalizedQuery !== ""
+      ),
+    [options, normalizedQuery]
+  );
+
+  const handleInput = (event) => {
+    const nextValue = event.target.value;
+    setQuery(nextValue);
+    const match = options.find(
+      (option) => normalizeCategoryValue(option.name) === normalizeCategoryValue(nextValue)
+    );
+    onChange({ id: match?.id ?? null, name: nextValue });
+    setOpen(true);
+  };
+
+  const handleSelect = (option) => {
+    setQuery(option.name);
+    onChange({ id: option.id, name: option.name });
+    setOpen(false);
+  };
+
+  const handleCreate = () => {
+    if (!query.trim()) return;
+    onChange({ id: null, name: query });
+    setOpen(false);
+  };
+
+  return (
+    <div className="combo">
+      <input
+        className="input"
+        value={query}
+        placeholder={placeholder}
+        onChange={handleInput}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 120)}
+        disabled={disabled}
+        autoComplete="off"
+      />
+      {open && !disabled && (filtered.length > 0 || (query.trim() && !exactMatch)) ? (
+        <div className="combo-list" role="listbox">
+          {filtered.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              className="combo-option"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                handleSelect(option);
+              }}
+            >
+              {option.name}
+            </button>
+          ))}
+          {query.trim() && !exactMatch ? (
+            <button
+              type="button"
+              className="combo-option create"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                handleCreate();
+              }}
+            >
+              {createLabel} "{query.trim()}"
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 const buildDraft = (item) => ({
   title: item?.title ?? "",
   shortTitle: item?.shortTitle ?? "",
   sku: item?.sku ?? "",
-  category: item?.category ?? "",
+  categoryId: item?.categoryId ?? null,
+  categoryName: item?.categoryName ?? item?.category ?? "",
   categoriesInput: Array.isArray(item?.categories) ? item.categories.join(", ") : "",
   description: item?.description ?? "",
   imageUrl: item?.imageUrl ?? "",
@@ -51,6 +157,7 @@ export default function ItemProfileClient({ outletId, itemId, initialItem }) {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [role, setRole] = useState("support");
+  const [categories, setCategories] = useState([]);
   const { confirm, dialog } = useConfirm();
 
   useEffect(() => {
@@ -84,6 +191,18 @@ export default function ItemProfileClient({ outletId, itemId, initialItem }) {
     setItem(result.data);
   };
 
+  const loadCategories = async () => {
+    const result = await apiJson(`/api/outlets/${outletId}/categories`);
+    if (!result.ok) {
+      return;
+    }
+    setCategories(result.data?.items || []);
+  };
+
+  useEffect(() => {
+    loadCategories();
+  }, [outletId]);
+
   const handleSave = async () => {
     if (saving) return;
 
@@ -92,7 +211,14 @@ export default function ItemProfileClient({ outletId, itemId, initialItem }) {
       payload.title = draft.title.trim();
       payload.shortTitle = draft.shortTitle.trim() || null;
       payload.sku = draft.sku.trim() || null;
-      payload.category = draft.category.trim() || null;
+      const nextCategoryName = draft.categoryName?.trim() || "";
+      if (draft.categoryId) {
+        payload.category_id = draft.categoryId;
+      } else if (nextCategoryName) {
+        payload.category_name = nextCategoryName;
+      } else {
+        payload.category_name = null;
+      }
       payload.categories = draft.categoriesInput
         .split(",")
         .map((part) => part.trim())
@@ -261,10 +387,14 @@ export default function ItemProfileClient({ outletId, itemId, initialItem }) {
         <div className="form-row two">
           <div className="auth-field">
             <label>{t("outlets.menu.profile.fields.category")}</label>
-            <input
-              className="input"
-              value={draft.category}
-              onChange={(event) => setDraft({ ...draft, category: event.target.value })}
+            <CategoryCombobox
+              value={draft.categoryName}
+              onChange={({ id, name }) =>
+                setDraft({ ...draft, categoryId: id, categoryName: name })
+              }
+              options={categories}
+              placeholder={t("outlets.menu.profile.fields.category")}
+              createLabel={t("common.create")}
               disabled={!canEditDetails}
             />
           </div>

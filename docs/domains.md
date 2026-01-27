@@ -41,12 +41,15 @@
 - core_id, origin_id, weight_grams, created_at, updated_at
 
 ### Outlet Items
-- outlet_id, item_id, base_price
+- outlet_id, item_id, category_id, base_price
 - is_available, is_visible
 - stock, stock_qty
 - stoplist_active, stoplist_until, stoplist_reason
 - unavailable_reason, unavailable_until
 - delivery_methods, updated_at
+
+### Outlet Categories
+- id, outlet_id, name, normalized_name, created_at
 
 ## Orders
 - id, order_number, client_user_id, outlet_id, courier_user_id

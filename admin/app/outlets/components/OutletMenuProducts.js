@@ -39,6 +39,113 @@ const Modal = ({ open, title, onClose, children }) => {
   );
 };
 
+const normalizeCategoryValue = (value) => String(value ?? "").trim().toLowerCase();
+
+const CategoryCombobox = ({
+  id,
+  value,
+  onChange,
+  options,
+  placeholder,
+  disabled,
+  createLabel
+}) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value ?? "");
+
+  useEffect(() => {
+    setQuery(value ?? "");
+  }, [value]);
+
+  const normalizedQuery = normalizeCategoryValue(query);
+  const filtered = useMemo(() => {
+    if (!normalizedQuery) {
+      return options.slice(0, 6);
+    }
+    return options
+      .filter((option) =>
+        normalizeCategoryValue(option.name).includes(normalizedQuery)
+      )
+      .slice(0, 6);
+  }, [options, normalizedQuery]);
+
+  const exactMatch = useMemo(
+    () =>
+      options.find(
+        (option) =>
+          normalizeCategoryValue(option.name) === normalizedQuery && normalizedQuery !== ""
+      ),
+    [options, normalizedQuery]
+  );
+
+  const handleInput = (event) => {
+    const nextValue = event.target.value;
+    setQuery(nextValue);
+    const match = options.find(
+      (option) => normalizeCategoryValue(option.name) === normalizeCategoryValue(nextValue)
+    );
+    onChange({ id: match?.id ?? null, name: nextValue });
+    setOpen(true);
+  };
+
+  const handleSelect = (option) => {
+    setQuery(option.name);
+    onChange({ id: option.id, name: option.name });
+    setOpen(false);
+  };
+
+  const handleCreate = () => {
+    if (!query.trim()) return;
+    onChange({ id: null, name: query });
+    setOpen(false);
+  };
+
+  return (
+    <div className="combo">
+      <input
+        id={id}
+        className="input"
+        value={query}
+        placeholder={placeholder}
+        onChange={handleInput}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 120)}
+        disabled={disabled}
+        autoComplete="off"
+      />
+      {open && !disabled && (filtered.length > 0 || (query.trim() && !exactMatch)) ? (
+        <div className="combo-list" role="listbox">
+          {filtered.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              className="combo-option"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                handleSelect(option);
+              }}
+            >
+              {option.name}
+            </button>
+          ))}
+          {query.trim() && !exactMatch ? (
+            <button
+              type="button"
+              className="combo-option create"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                handleCreate();
+              }}
+            >
+              {createLabel} "{query.trim()}"
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 export default function OutletMenuProducts({ outletId, role }) {
   const { t } = useLocale();
   const [filters, setFilters] = useState({
@@ -57,6 +164,7 @@ export default function OutletMenuProducts({ outletId, role }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [categories, setCategories] = useState([]);
   const { confirm, dialog } = useConfirm();
 
   const normalizedRole = normalizeRole(role);
@@ -89,16 +197,29 @@ export default function OutletMenuProducts({ outletId, role }) {
     setLoading(false);
   };
 
+  const loadCategories = async () => {
+    const result = await apiJson(`/api/outlets/${outletId}/categories`);
+    if (!result.ok) {
+      return;
+    }
+    setCategories(result.data?.items || []);
+  };
+
   useEffect(() => {
     const timer = setTimeout(fetchItems, 350);
     return () => clearTimeout(timer);
   }, [filters]);
 
+  useEffect(() => {
+    loadCategories();
+  }, [outletId]);
+
   const openEdit = (item) => {
     setEditing({
       ...item,
       title: item.title ?? "",
-      category: item.category ?? "",
+      categoryId: item.categoryId ?? null,
+      categoryName: item.categoryName ?? item.category ?? "",
       sku: item.sku ?? "",
       description: item.description ?? "",
       photoUrl: item.photoUrl ?? "",
@@ -115,7 +236,8 @@ export default function OutletMenuProducts({ outletId, role }) {
   const openCreate = () => {
     setCreating({
       title: "",
-      category: "",
+      categoryId: null,
+      categoryName: "",
       sku: "",
       description: "",
       photoUrl: "",
@@ -151,8 +273,13 @@ export default function OutletMenuProducts({ outletId, role }) {
       if (editing.title.trim() !== "") {
         payload.title = editing.title.trim();
       }
-      if (editing.category !== "") {
-        payload.category = editing.category;
+      const nextCategoryName = editing.categoryName?.trim() || "";
+      if (editing.categoryId) {
+        payload.category_id = editing.categoryId;
+      } else if (nextCategoryName) {
+        payload.category_name = nextCategoryName;
+      } else {
+        payload.category_name = null;
       }
       if (editing.sku !== "") {
         payload.sku = editing.sku;
@@ -196,6 +323,7 @@ export default function OutletMenuProducts({ outletId, role }) {
     }
     setToast({ type: "success", message: t("outlets.menu.toasts.updated") });
     setEditing(null);
+    loadCategories();
     fetchItems();
   };
 
@@ -212,7 +340,8 @@ export default function OutletMenuProducts({ outletId, role }) {
     }
     const payload = {
       title: creating.title.trim(),
-      category: creating.category || null,
+      category_id: creating.categoryId || null,
+      category_name: creating.categoryId ? null : creating.categoryName?.trim() || null,
       sku: creating.sku || null,
       description: creating.description || null,
       photoUrl: creating.photoUrl || null,
@@ -233,6 +362,7 @@ export default function OutletMenuProducts({ outletId, role }) {
     }
     setToast({ type: "success", message: t("outlets.menu.toasts.created") });
     setCreating(null);
+    loadCategories();
     fetchItems();
   };
 
@@ -387,7 +517,7 @@ export default function OutletMenuProducts({ outletId, role }) {
                     <div className="helper-text">{item.description}</div>
                   ) : null}
                 </td>
-                <td>{item.category || "-"}</td>
+                <td>{item.categoryName || item.category || "-"}</td>
                 <td>{item.sku || "-"}</td>
                 <td>{item.weightGrams ? `${item.weightGrams} g` : "-"}</td>
                 <td>
@@ -514,13 +644,15 @@ export default function OutletMenuProducts({ outletId, role }) {
               </div>
               <div className="auth-field">
                 <label htmlFor="editCategory">{t("outlets.menu.form.category")}</label>
-                <input
+                <CategoryCombobox
                   id="editCategory"
-                  className="input"
-                  value={editing.category}
-                  onChange={(event) =>
-                    setEditing({ ...editing, category: event.target.value })
+                  value={editing.categoryName}
+                  onChange={({ id: categoryId, name }) =>
+                    setEditing({ ...editing, categoryId, categoryName: name })
                   }
+                  options={categories}
+                  placeholder={t("outlets.menu.form.category")}
+                  createLabel={t("common.create")}
                   disabled={!canManageItems}
                 />
               </div>
@@ -699,13 +831,15 @@ export default function OutletMenuProducts({ outletId, role }) {
               </div>
               <div className="auth-field">
                 <label htmlFor="createCategory">{t("outlets.menu.form.category")}</label>
-                <input
+                <CategoryCombobox
                   id="createCategory"
-                  className="input"
-                  value={creating.category}
-                  onChange={(event) =>
-                    setCreating({ ...creating, category: event.target.value })
+                  value={creating.categoryName}
+                  onChange={({ id: categoryId, name }) =>
+                    setCreating({ ...creating, categoryId, categoryName: name })
                   }
+                  options={categories}
+                  placeholder={t("outlets.menu.form.category")}
+                  createLabel={t("common.create")}
                 />
               </div>
             </div>

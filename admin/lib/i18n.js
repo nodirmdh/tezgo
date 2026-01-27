@@ -200,7 +200,12 @@ const translations = {
         summary: {
           payments: "Платежи",
           refunds: "Возвраты",
-          promos: "Промокоды"
+          promos: "Промокоды",
+          compensations: "Компенсации",
+          balance: "Баланс",
+          payouts: "Выплаты",
+          penalties: "Штрафы",
+          bonuses: "Бонусы"
         }
       },
       profile: {
@@ -551,6 +556,11 @@ const translations = {
         manageAddresses: "Управлять адресами",
         viewPromos: "Посмотреть промокоды"
       },
+      rewards: {
+        title: "Промокоды и компенсации",
+        promos: "Промокоды",
+        compensations: "Компенсации"
+      },
       metrics: {
         orders: "Заказы",
         totalSpent: "Потрачено всего",
@@ -835,6 +845,10 @@ const translations = {
         pause: "Пауза",
         archive: "Архивировать",
         duplicate: "Дублировать",
+        errors: {
+          activate: "Не удалось активировать кампанию. Проверьте данные или попробуйте позже.",
+          pause: "Не удалось поставить кампанию на паузу. Проверьте данные или попробуйте позже."
+        },
         activated: "Кампания активирована",
         paused: "Кампания приостановлена",
         archived: "Кампания архивирована",
@@ -1172,6 +1186,7 @@ const translations = {
         updated: "Промокод обновлен",
         created: "Промоакция создана"
       },
+      empty: "Промоакций пока нет",
       filters: {
         search: "Поиск по коду",
         all: "Все"
@@ -1465,7 +1480,12 @@ const translations = {
         summary: {
           payments: "To'lovlar",
           refunds: "Qaytarishlar",
-          promos: "Promolar"
+          promos: "Promolar",
+          compensations: "Kompensatsiyalar",
+          balance: "Balans",
+          payouts: "To'lovlar (kuryer)",
+          penalties: "Jarimalar",
+          bonuses: "Bonuslar"
         }
       },
       profile: {
@@ -1815,6 +1835,11 @@ const translations = {
         lastPromo: "So'nggi promo",
         manageAddresses: "Manzillarni boshqarish",
         viewPromos: "Promolarni ko'rish"
+      },
+      rewards: {
+        title: "Promokodlar va kompensatsiyalar",
+        promos: "Promokodlar",
+        compensations: "Kompensatsiyalar"
       },
       metrics: {
         orders: "Buyurtmalar",
@@ -2314,6 +2339,10 @@ const translations = {
         pause: "Pauza",
         archive: "Arxivlash",
         duplicate: "Nusxalash",
+        errors: {
+          activate: "Kampaniyani faollashtirib bo'lmadi. Ma'lumotlarni tekshiring yoki keyinroq urinib ko'ring.",
+          pause: "Kampaniyani pauzaga qo'yib bo'lmadi. Ma'lumotlarni tekshiring yoki keyinroq urinib ko'ring."
+        },
         activated: "Kampaniya faollashtirildi",
         paused: "Kampaniya pauzaga qo'yildi",
         archived: "Kampaniya arxivlandi",
@@ -2436,6 +2465,7 @@ const translations = {
         updated: "Promo yangilandi",
         created: "Promo yaratildi"
       },
+      empty: "Aksiyalar yo'q",
       filters: {
         search: "Qidirish",
         all: "Barcha holatlar"
@@ -3146,7 +3176,12 @@ const translations = {
         summary: {
           payments: "Payments",
           refunds: "Refunds",
-          promos: "Promos"
+          promos: "Promos",
+          compensations: "Compensations",
+          balance: "Balance",
+          payouts: "Payouts",
+          penalties: "Penalties",
+          bonuses: "Bonuses"
         }
       },
       profile: {
@@ -3496,6 +3531,11 @@ const translations = {
         lastPromo: "Latest promo",
         manageAddresses: "Manage addresses",
         viewPromos: "View promos"
+      },
+      rewards: {
+        title: "Promos & compensations",
+        promos: "Promos",
+        compensations: "Compensations"
       },
       metrics: {
         orders: "Orders",
@@ -3995,6 +4035,10 @@ const translations = {
         pause: "Pause",
         archive: "Archive",
         duplicate: "Duplicate",
+        errors: {
+          activate: "Failed to activate campaign. Check the data or try again later.",
+          pause: "Failed to pause campaign. Check the data or try again later."
+        },
         activated: "Campaign activated",
         paused: "Campaign paused",
         archived: "Campaign archived",
@@ -4117,6 +4161,7 @@ const translations = {
         updated: "Promo updated",
         created: "Promo created"
       },
+      empty: "No promos yet",
       filters: {
         search: "Search",
         all: "All statuses"

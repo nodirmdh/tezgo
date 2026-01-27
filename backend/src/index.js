@@ -730,6 +730,50 @@ const normalizeJsonArrayInput = (value) => {
   return null;
 };
 
+const normalizeCategoryName = (value) => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const name = String(value).trim();
+  if (!name) {
+    return null;
+  }
+  return { name, normalized: name.toLowerCase() };
+};
+
+const resolveOutletCategory = (db, outletId, { categoryId, categoryName }) => {
+  if (categoryId !== undefined && categoryId !== null && categoryId !== "") {
+    const resolved = db
+      .prepare(
+        "SELECT id, name FROM outlet_categories WHERE id = ? AND outlet_id = ?"
+      )
+      .get(Number(categoryId), outletId);
+    if (!resolved) {
+      return { error: "Category not found" };
+    }
+    return { id: resolved.id, name: resolved.name };
+  }
+
+  const normalized = normalizeCategoryName(categoryName);
+  if (!normalized) {
+    return { id: null, name: null };
+  }
+
+  db.prepare(
+    `INSERT INTO outlet_categories (outlet_id, name, normalized_name)
+     VALUES (?, ?, ?)
+     ON CONFLICT(outlet_id, normalized_name) DO UPDATE SET name = excluded.name`
+  ).run(outletId, normalized.name, normalized.normalized);
+
+  const resolved = db
+    .prepare(
+      "SELECT id, name FROM outlet_categories WHERE outlet_id = ? AND normalized_name = ?"
+    )
+    .get(outletId, normalized.normalized);
+
+  return { id: resolved?.id ?? null, name: resolved?.name ?? normalized.name };
+};
+
 const fetchItemProfile = (db, outletId, itemId) => {
   const row = db
     .prepare(
@@ -746,10 +790,12 @@ const fetchItemProfile = (db, outletId, itemId) => {
               outlet_items.stoplist_until,
               outlet_items.stoplist_reason,
               outlet_items.delivery_methods,
+              outlet_items.category_id,
               outlet_items.updated_at as outlet_updated_at,
               items.title,
               items.short_title,
               items.category,
+              outlet_categories.name as category_name,
               items.categories,
               items.sku,
               items.description,
@@ -769,6 +815,7 @@ const fetchItemProfile = (db, outletId, itemId) => {
               items.updated_at
        FROM outlet_items
        JOIN items ON items.id = outlet_items.item_id
+       LEFT JOIN outlet_categories ON outlet_categories.id = outlet_items.category_id
        WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
     )
     .get(outletId, itemId);
@@ -802,6 +849,8 @@ const fetchItemProfile = (db, outletId, itemId) => {
     itemId,
     title: row.title,
     shortTitle: row.short_title,
+    categoryId: row.category_id ?? null,
+    categoryName: row.category_name ?? null,
     category: row.category,
     categories: parseJsonSafe(row.categories, []),
     sku: row.sku,
@@ -1778,16 +1827,17 @@ app.get("/api/users/:id/finance", (req, res) => {
   let summary;
   if (user.role === "courier") {
     summary = [
-      { label: "Р‘Р°Р»Р°РЅСЃ", value: balance },
-      { label: "Р’С‹РїР»Р°С‚С‹", value: sumByType("courier_payout") },
-      { label: "РЁС‚СЂР°С„С‹", value: sumByType("penalty") },
-      { label: "Р‘РѕРЅСѓСЃС‹", value: sumByType("bonus") }
+      { type: "balance", value: balance },
+      { type: "payouts", value: sumByType("courier_payout") },
+      { type: "penalties", value: sumByType("penalty") },
+      { type: "bonuses", value: sumByType("bonus") }
     ];
   } else {
     summary = [
-      { label: "РџР»Р°С‚РµР¶Рё", value: sumByType("payment") },
-      { label: "Р’РѕР·РІСЂР°С‚С‹", value: sumByType("refund") },
-      { label: "РџСЂРѕРјРѕРєРѕРґС‹", value: sumByType("promo") }
+      { type: "payments", value: sumByType("payment") },
+      { type: "refunds", value: sumByType("refund") },
+      { type: "compensations", value: sumByType("compensation") },
+      { type: "promos", value: sumByType("promo") }
     ];
   }
 
@@ -3316,6 +3366,19 @@ app.delete("/api/outlets/:id/notes/:noteId", requireRole(["admin", "support", "o
   res.status(204).send();
 });
 
+app.get("/api/outlets/:outletId/categories", (req, res) => {
+  const outletId = Number(req.params.outletId);
+  const items = db
+    .prepare(
+      `SELECT id, name
+       FROM outlet_categories
+       WHERE outlet_id = ?
+       ORDER BY name`
+    )
+    .all(outletId);
+  res.json({ items });
+});
+
 app.get("/api/outlets/:outletId/items", (req, res) => {
   const outletId = Number(req.params.outletId);
   const { search, available } = req.query;
@@ -3367,6 +3430,8 @@ app.get("/api/outlets/:outletId/items", (req, res) => {
               items.title,
               items.short_title,
               items.category,
+              outlet_items.category_id,
+              outlet_categories.name as category_name,
               items.sku,
               items.description,
               items.photo_url,
@@ -3396,6 +3461,7 @@ app.get("/api/outlets/:outletId/items", (req, res) => {
               outlet_items.updated_at
        FROM outlet_items
        JOIN items ON items.id = outlet_items.item_id
+       LEFT JOIN outlet_categories ON outlet_categories.id = outlet_items.category_id
        WHERE ${where}`
     )
     .all({ ...params, outlet_id: outletId });
@@ -3434,6 +3500,8 @@ app.get("/api/outlets/:outletId/items", (req, res) => {
       itemId: row.item_id,
       title: row.title,
       shortTitle: row.short_title,
+      categoryId: row.category_id ?? null,
+      categoryName: row.category_name ?? null,
       category: row.category,
       sku: row.sku,
       description: row.description,
@@ -3504,6 +3572,8 @@ app.post("/api/outlets/:outletId/items", requireRole(["admin"]), (req, res) => {
     shortTitle,
     sku,
     category,
+    categoryId,
+    categoryName,
     categories,
     description,
     photoUrl,
@@ -3539,6 +3609,15 @@ app.post("/api/outlets/:outletId/items", requireRole(["admin"]), (req, res) => {
   const deliveryMethodsValue = normalizeJsonArrayInput(deliveryMethods);
   const imageUrlValue = imageUrl ?? photoUrl ?? null;
   const photoUrlValue = photoUrl ?? imageUrl ?? null;
+  const resolvedCategory = resolveOutletCategory(db, outletId, {
+    categoryId: req.body?.category_id ?? categoryId,
+    categoryName: req.body?.category_name ?? categoryName ?? category
+  });
+  if (resolvedCategory.error) {
+    return res.status(400).json({ error: resolvedCategory.error });
+  }
+  const categoryValue = resolvedCategory.name ?? null;
+  const categoryIdValue = resolvedCategory.id ?? null;
 
   const itemId = db.prepare(
     `INSERT INTO items
@@ -3549,7 +3628,7 @@ app.post("/api/outlets/:outletId/items", requireRole(["admin"]), (req, res) => {
     title,
     shortTitle ?? null,
     sku ?? null,
-    category ?? null,
+    categoryValue,
     categoriesValue,
     description ?? null,
     photoUrlValue,
@@ -3588,13 +3667,14 @@ app.post("/api/outlets/:outletId/items", requireRole(["admin"]), (req, res) => {
 
   db.prepare(
     `INSERT INTO outlet_items
-      (outlet_id, item_id, base_price, is_available, stock, stock_qty, is_visible,
+      (outlet_id, item_id, category_id, base_price, is_available, stock, stock_qty, is_visible,
        stoplist_active, stoplist_reason, stoplist_until, delivery_methods,
        unavailable_reason, unavailable_until, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     outletId,
     itemId,
+    categoryIdValue,
     Number(basePrice),
     stoplistValue ? 0 : availableValue,
     stockValue,
@@ -3614,6 +3694,8 @@ app.post("/api/outlets/:outletId/items", requireRole(["admin"]), (req, res) => {
             items.title,
             items.short_title,
             items.category,
+            outlet_items.category_id,
+            outlet_categories.name as category_name,
             items.sku,
             items.description,
             items.photo_url,
@@ -3643,6 +3725,7 @@ app.post("/api/outlets/:outletId/items", requireRole(["admin"]), (req, res) => {
             outlet_items.updated_at
      FROM outlet_items
      JOIN items ON items.id = outlet_items.item_id
+     LEFT JOIN outlet_categories ON outlet_categories.id = outlet_items.category_id
      WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
   ).get(outletId, itemId);
 
@@ -3703,9 +3786,11 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
               outlet_items.stoplist_until,
               outlet_items.stoplist_reason,
               outlet_items.delivery_methods,
+              outlet_items.category_id,
               items.title,
               items.short_title,
               items.category,
+              outlet_categories.name as category_name,
               items.categories,
               items.sku,
               items.description,
@@ -3723,6 +3808,7 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
               , items.origin_id
        FROM outlet_items
        JOIN items ON items.id = outlet_items.item_id
+       LEFT JOIN outlet_categories ON outlet_categories.id = outlet_items.category_id
        WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
     )
     .get(outletId, itemId);
@@ -3737,7 +3823,6 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
   const detailsFields = [
     "title",
     "shortTitle",
-    "category",
     "categories",
     "sku",
     "description",
@@ -3754,7 +3839,13 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
     "coreId",
     "originId"
   ];
-  if (detailsFields.some((field) => req.body[field] !== undefined) && !canEditDetails) {
+  const categoryProvided =
+    req.body.category !== undefined ||
+    req.body.category_id !== undefined ||
+    req.body.categoryId !== undefined ||
+    req.body.category_name !== undefined ||
+    req.body.categoryName !== undefined;
+  if ((detailsFields.some((field) => req.body[field] !== undefined) || categoryProvided) && !canEditDetails) {
     return res.status(403).json({ error: "Forbidden" });
   }
 
@@ -3842,7 +3933,18 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
     }
   }
 
-  if (canEditDetails && detailsFields.some((field) => req.body[field] !== undefined)) {
+  let resolvedCategory = null;
+  if (categoryProvided) {
+    resolvedCategory = resolveOutletCategory(db, outletId, {
+      categoryId: req.body?.category_id ?? req.body?.categoryId,
+      categoryName: req.body?.category_name ?? req.body?.categoryName ?? req.body?.category
+    });
+    if (resolvedCategory.error) {
+      return res.status(400).json({ error: resolvedCategory.error });
+    }
+  }
+
+  if (canEditDetails && (detailsFields.some((field) => req.body[field] !== undefined) || categoryProvided)) {
     const categoriesValue = normalizeJsonArrayInput(req.body.categories);
     const imageUrlValue =
       req.body.imageUrl !== undefined
@@ -3860,7 +3962,7 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
       `UPDATE items
        SET title = COALESCE(@title, title),
            short_title = COALESCE(@short_title, short_title),
-           category = COALESCE(@category, category),
+           category = CASE WHEN @category_set = 1 THEN @category ELSE category END,
            categories = COALESCE(@categories, categories),
            sku = COALESCE(@sku, sku),
            description = COALESCE(@description, description),
@@ -3881,7 +3983,8 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
     ).run({
       title: req.body.title,
       short_title: req.body.shortTitle,
-      category: req.body.category,
+      category: resolvedCategory ? resolvedCategory.name : null,
+      category_set: categoryProvided ? 1 : 0,
       categories: categoriesValue,
       sku: req.body.sku,
       description: req.body.description,
@@ -3913,6 +4016,7 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
   db.prepare(
     `UPDATE outlet_items
      SET base_price = COALESCE(@base_price, base_price),
+         category_id = CASE WHEN @category_id_set = 1 THEN @category_id ELSE category_id END,
          is_available = COALESCE(@is_available, is_available),
          stock = COALESCE(@stock, stock),
          stock_qty = COALESCE(@stock_qty, stock_qty),
@@ -3956,6 +4060,8 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
     unavailable_until_set:
       untilProvided || (isAvailableProvided && isAvailable === 1) || stoplistProvided ? 1 : 0,
     updated_at: nowIso(),
+    category_id: resolvedCategory ? resolvedCategory.id : null,
+    category_id_set: categoryProvided ? 1 : 0,
     outlet_id: outletId,
     item_id: itemId
   });
@@ -4010,6 +4116,7 @@ app.patch(
                 outlet_items.stoplist_until,
                 outlet_items.stoplist_reason,
                 outlet_items.delivery_methods,
+                outlet_items.category_id,
                 items.title,
                 items.short_title,
                 items.category,
@@ -4097,6 +4204,7 @@ app.post("/api/outlets/:outletId/items/:itemId/duplicate", requireRole(["admin"]
               outlet_items.stoplist_until,
               outlet_items.stoplist_reason,
               outlet_items.delivery_methods,
+              outlet_items.category_id,
               items.title,
               items.short_title,
               items.category,
@@ -4125,6 +4233,14 @@ app.post("/api/outlets/:outletId/items/:itemId/duplicate", requireRole(["admin"]
     return res.status(404).json({ error: "Outlet item not found" });
   }
 
+  const resolvedCategory = resolveOutletCategory(db, outletId, {
+    categoryId: item.category_id,
+    categoryName: item.category
+  });
+  if (resolvedCategory.error) {
+    return res.status(400).json({ error: resolvedCategory.error });
+  }
+
   const now = nowIso();
   const newItemId = db
     .prepare(
@@ -4137,7 +4253,7 @@ app.post("/api/outlets/:outletId/items/:itemId/duplicate", requireRole(["admin"]
       `${item.title} (copy)`,
       item.short_title ?? null,
       null,
-      item.category ?? null,
+      resolvedCategory.name ?? item.category ?? null,
       item.categories ?? null,
       item.description ?? null,
       item.photo_url ?? null,
@@ -4157,13 +4273,14 @@ app.post("/api/outlets/:outletId/items/:itemId/duplicate", requireRole(["admin"]
 
   db.prepare(
     `INSERT INTO outlet_items
-      (outlet_id, item_id, base_price, is_available, stock, stock_qty, is_visible,
+      (outlet_id, item_id, category_id, base_price, is_available, stock, stock_qty, is_visible,
        stoplist_active, stoplist_reason, stoplist_until, delivery_methods,
        unavailable_reason, unavailable_until, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     outletId,
     newItemId,
+    resolvedCategory.id ?? null,
     Number(item.base_price || 0),
     item.is_available ?? 1,
     item.stock ?? null,
@@ -4249,6 +4366,13 @@ app.post(
       return res.status(404).json({ error: "Outlet item not found" });
     }
 
+    const resolvedCategory = resolveOutletCategory(db, targetOutletId, {
+      categoryName: item.category
+    });
+    if (resolvedCategory.error) {
+      return res.status(400).json({ error: resolvedCategory.error });
+    }
+
     const now = nowIso();
     const newItemId = db
       .prepare(
@@ -4261,7 +4385,7 @@ app.post(
         item.title,
         item.short_title ?? null,
         null,
-        item.category ?? null,
+        resolvedCategory.name ?? item.category ?? null,
         item.categories ?? null,
         item.description ?? null,
         item.photo_url ?? null,
@@ -4281,13 +4405,14 @@ app.post(
 
     db.prepare(
       `INSERT INTO outlet_items
-        (outlet_id, item_id, base_price, is_available, stock, stock_qty, is_visible,
+        (outlet_id, item_id, category_id, base_price, is_available, stock, stock_qty, is_visible,
          stoplist_active, stoplist_reason, stoplist_until, delivery_methods,
          unavailable_reason, unavailable_until, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       targetOutletId,
       newItemId,
+      resolvedCategory.id ?? null,
       Number(item.base_price || 0),
       item.is_available ?? 1,
       item.stock ?? null,
