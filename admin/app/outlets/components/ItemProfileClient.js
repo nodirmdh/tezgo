@@ -282,6 +282,7 @@ export default function ItemProfileClient({ outletId, itemId, initialItem }) {
       return;
     }
     setItem(result.data);
+    loadCategories();
     setToast({ type: "success", message: t("outlets.menu.profile.toasts.saved") });
   };
 
