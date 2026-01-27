@@ -4,8 +4,7 @@ import { useLocale } from "../../components/LocaleProvider";
 
 const tabs = [
   { id: "overview", labelKey: "tabs.overview" },
-  { id: "timeline", labelKey: "tabs.timeline" },
-  { id: "support", labelKey: "orders.support.title" }
+  { id: "timeline", labelKey: "tabs.timeline" }
 ];
 
 export default function OrderTabs({ active, onChange }) {

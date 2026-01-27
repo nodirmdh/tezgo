@@ -30,10 +30,19 @@ export const apiFetch = async (path, options = {}) => {
 export const apiJson = async (path, options = {}) => {
   const response = await apiFetch(path, options);
   if (!response.ok) {
+    let error = apiErrorMessage(response.status);
+    try {
+      const payload = await response.json();
+      if (payload?.error) {
+        error = payload.error;
+      }
+    } catch {
+      // ignore non-json errors
+    }
     return {
       ok: false,
       status: response.status,
-      error: apiErrorMessage(response.status),
+      error,
       data: null
     };
   }

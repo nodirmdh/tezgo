@@ -20,6 +20,20 @@ export default function UserFinance({ data, loading, error, embedded = false }) 
     return <div className="banner error">{t(error)}</div>;
   }
 
+  const summaryLabel = (type) => {
+    const map = {
+      balance: t("users.finance.summary.balance"),
+      payouts: t("users.finance.summary.payouts"),
+      penalties: t("users.finance.summary.penalties"),
+      bonuses: t("users.finance.summary.bonuses"),
+      payments: t("users.finance.summary.payments"),
+      refunds: t("users.finance.summary.refunds"),
+      compensations: t("users.finance.summary.compensations"),
+      promos: t("users.finance.summary.promos")
+    };
+    return map[type] || type;
+  };
+
   return (
     <section className={`card profile-card${embedded ? " embedded-card" : ""}`}>
       <div className="profile-title">{t("users.finance.title")}</div>
@@ -27,7 +41,7 @@ export default function UserFinance({ data, loading, error, embedded = false }) 
         {(data.summary || []).map((item) => (
           <div key={item.type} className="card">
             <div style={{ color: "#64748B", fontSize: "13px" }}>
-              {t(`users.finance.summary.${item.type}`, { defaultValue: item.type })}
+              {summaryLabel(item.type)}
             </div>
             <div className="card-value">{item.value}</div>
           </div>

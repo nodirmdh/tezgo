@@ -591,53 +591,61 @@ export const setupCampaignRoutes = ({
   });
 
   app.post("/api/campaigns/:id/activate", requireRole(["admin"]), (req, res) => {
-    const snapshot = loadCampaignSnapshot(req.params.id);
-    if (!snapshot) {
-      return res.status(404).json({ error: "Campaign not found" });
-    }
-    if (!isTransitionAllowed(snapshot.row.status, "active")) {
-      return res.status(400).json({ error: "Invalid status transition" });
-    }
-    const now = nowIso();
-    if (snapshot.row.end_at && new Date(snapshot.row.end_at) < new Date(now)) {
+    try {
+      const snapshot = loadCampaignSnapshot(req.params.id);
+      if (!snapshot) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      if (!isTransitionAllowed(snapshot.row.status, "active")) {
+        return res.status(409).json({ error: "Invalid status transition" });
+      }
+      const now = nowIso();
+      if (snapshot.row.end_at && new Date(snapshot.row.end_at) < new Date(now)) {
+        db.prepare(
+          `UPDATE campaigns
+           SET status = 'expired',
+               updated_at = @now
+           WHERE id = ?`
+        ).run(now, snapshot.row.id);
+        return res.status(409).json({ error: "Campaign already expired" });
+      }
       db.prepare(
         `UPDATE campaigns
-         SET status = 'expired',
+         SET status = 'active',
+             start_at = COALESCE(start_at, @now),
              updated_at = @now
          WHERE id = ?`
       ).run(now, snapshot.row.id);
-      return res.status(400).json({ error: "Campaign already expired" });
+      const updated = loadCampaignSnapshot(snapshot.row.id);
+      auditCampaign(snapshot.row.id, "activate", snapshot, updated, req);
+      return res.json(updated.snapshot);
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to activate campaign" });
     }
-    db.prepare(
-      `UPDATE campaigns
-       SET status = 'active',
-           start_at = COALESCE(start_at, @now),
-           updated_at = @now
-       WHERE id = ?`
-    ).run(now, snapshot.row.id);
-    const updated = loadCampaignSnapshot(snapshot.row.id);
-    auditCampaign(snapshot.row.id, "activate", snapshot, updated, req);
-    return res.json(updated.snapshot);
   });
 
   app.post("/api/campaigns/:id/pause", requireRole(["admin"]), (req, res) => {
-    const snapshot = loadCampaignSnapshot(req.params.id);
-    if (!snapshot) {
-      return res.status(404).json({ error: "Campaign not found" });
+    try {
+      const snapshot = loadCampaignSnapshot(req.params.id);
+      if (!snapshot) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      if (!isTransitionAllowed(snapshot.row.status, "paused")) {
+        return res.status(409).json({ error: "Invalid status transition" });
+      }
+      const now = nowIso();
+      db.prepare(
+        `UPDATE campaigns
+         SET status = 'paused',
+             updated_at = @now
+         WHERE id = ?`
+      ).run(now, snapshot.row.id);
+      const updated = loadCampaignSnapshot(snapshot.row.id);
+      auditCampaign(snapshot.row.id, "pause", snapshot, updated, req);
+      return res.json(updated.snapshot);
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to pause campaign" });
     }
-    if (!isTransitionAllowed(snapshot.row.status, "paused")) {
-      return res.status(400).json({ error: "Invalid status transition" });
-    }
-    const now = nowIso();
-    db.prepare(
-      `UPDATE campaigns
-       SET status = 'paused',
-           updated_at = @now
-       WHERE id = ?`
-    ).run(now, snapshot.row.id);
-    const updated = loadCampaignSnapshot(snapshot.row.id);
-    auditCampaign(snapshot.row.id, "pause", snapshot, updated, req);
-    return res.json(updated.snapshot);
   });
 
   app.delete("/api/campaigns/:id", requireRole(["admin"]), (req, res) => {

@@ -9,8 +9,6 @@ export default function ClientOverview({
   client,
   metrics,
   loading,
-  primaryAddress,
-  lastPromo,
   onManageAddresses,
   onViewPromos,
   phoneVisible,
@@ -75,6 +73,14 @@ export default function ClientOverview({
           <span className="muted">{t("clients.fields.lastOrder")}</span>
           <span>{formatDate(metrics.lastOrderAt)}</span>
         </div>
+        <div className="table-actions">
+          <button className="action-link" type="button" onClick={onManageAddresses}>
+            {t("clients.overview.manageAddresses")}
+          </button>
+          <button className="action-link" type="button" onClick={onViewPromos}>
+            {t("clients.overview.viewPromos")}
+          </button>
+        </div>
       </section>
 
       <section className="card profile-card">
@@ -103,25 +109,6 @@ export default function ClientOverview({
         )}
       </section>
 
-      <section className="card profile-card">
-        <div className="profile-title">{t("clients.overview.support")}</div>
-        <div className="profile-row">
-          <span className="muted">{t("clients.overview.primaryAddress")}</span>
-          <span>{primaryAddress?.address_text || "-"}</span>
-        </div>
-        <div className="profile-row">
-          <span className="muted">{t("clients.overview.lastPromo")}</span>
-          <span>{lastPromo ? `${lastPromo.code} (${lastPromo.status})` : "-"}</span>
-        </div>
-        <div className="table-actions">
-          <button className="action-link" type="button" onClick={onManageAddresses}>
-            {t("clients.overview.manageAddresses")}
-          </button>
-          <button className="action-link" type="button" onClick={onViewPromos}>
-            {t("clients.overview.viewPromos")}
-          </button>
-        </div>
-      </section>
     </div>
   );
 }

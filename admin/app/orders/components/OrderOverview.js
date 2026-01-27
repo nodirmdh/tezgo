@@ -156,8 +156,8 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
 
   return (
     <>
-      <div className="profile-grid">
-        <section className="card profile-card">
+      <div className="order-overview-grid">
+        <section className="card profile-card order-overview-card">
           <div className="profile-title">{t("orders.overview.details")}</div>
           <div className="profile-row">
             <span className="muted">{t("orders.table.orderId")}</span>
@@ -187,9 +187,8 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
             <span className="muted">{t("orders.overview.created")}</span>
             <span>{formatDate(order.created_at)}</span>
           </div>
-        </section>
 
-        <section className="card profile-card">
+          <div className="section-divider" />
           <div className="profile-title">{t("orders.overview.related")}</div>
           <div className="profile-row">
             <span className="muted">{t("orders.overview.client")}</span>
@@ -221,9 +220,8 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
               <span>{order.outlet_name || "-"}</span>
             )}
           </div>
-        </section>
 
-        <section className="card profile-card">
+          <div className="section-divider" />
           <div className="profile-title">{t("orders.details.address")}</div>
           <div className="profile-row">
             <span className="muted">{t("orders.overview.address")}</span>
@@ -245,9 +243,8 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
             <span className="muted">{t("orders.details.apartment")}</span>
             <span>{order.address_apartment || "-"}</span>
           </div>
-        </section>
 
-        <section className="card profile-card">
+          <div className="section-divider" />
           <div className="profile-title">{t("orders.details.recipient")}</div>
           <div className="profile-row">
             <span className="muted">{t("orders.details.forOther")}</span>
@@ -269,9 +266,8 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
             <span className="muted">{t("orders.details.utensils")}</span>
             <span>{order.utensils_count ?? "-"}</span>
           </div>
-        </section>
 
-        <section className="card profile-card">
+          <div className="section-divider" />
           <div className="profile-title">{t("orders.details.comments")}</div>
           <div className="profile-row">
             <span className="muted">{t("orders.details.commentRestaurant")}</span>
@@ -285,9 +281,8 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
             <span className="muted">{t("orders.details.commentCrm")}</span>
             <span>{order.crm_comment || "-"}</span>
           </div>
-        </section>
 
-        <section className="card profile-card">
+          <div className="section-divider" />
           <div className="profile-title">{t("orders.details.payment")}</div>
           <div className="profile-row">
             <span className="muted">{t("orders.details.subtotalFood")}</span>
@@ -323,11 +318,22 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
           </div>
         </section>
 
-        <section className="card profile-card">
-          <div className="profile-title">{t("orders.details.items")}</div>
-          {draftItems.length === 0 ? (
-            <div className="empty-state">{t("orders.details.itemsEmpty")}</div>
-          ) : (
+        <div className="order-overview-side">
+          <OrderActions
+            orderId={order.id}
+            role={role}
+            titleKey="orders.support.actionsTitle"
+            onCancelled={onOrderUpdated}
+          />
+        </div>
+      </div>
+
+      <section className="card profile-card order-items-card">
+        <div className="profile-title">{t("orders.details.items")}</div>
+        {draftItems.length === 0 ? (
+          <div className="empty-state">{t("orders.details.itemsEmpty")}</div>
+        ) : (
+          <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
@@ -422,47 +428,39 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
                 })}
               </tbody>
             </table>
-          )}
-          <div className="modal-actions">
-            <button className="button" type="button" onClick={handleAddItem}>
-              {t("orders.details.itemsTable.add")}
-            </button>
           </div>
-        </section>
+        )}
+        <div className="modal-actions">
+          <button className="button" type="button" onClick={handleAddItem}>
+            {t("orders.details.itemsTable.add")}
+          </button>
+        </div>
 
-        <section className="card profile-card">
-          <div className="profile-title">{t("orders.details.saveTitle")}</div>
-          <div className="auth-field">
-            <label htmlFor="orderSaveComment">
-              {t("orders.details.saveComment")}
-            </label>
-            <textarea
-              id="orderSaveComment"
-              className="input"
-              value={saveComment}
-              onChange={(event) => setSaveComment(event.target.value)}
-              placeholder={t("orders.details.saveCommentPlaceholder")}
-            />
-          </div>
-          <div className="modal-actions">
-            <button
-              className="button"
-              type="button"
-              onClick={handleSave}
-              disabled={saving || !hasChanges}
-            >
-              {saving ? t("orders.details.savePending") : t("orders.details.saveOrder")}
-            </button>
-          </div>
-        </section>
-
-        <OrderActions
-          orderId={order.id}
-          role={role}
-          titleKey="orders.support.actionsTitle"
-          onCancelled={onOrderUpdated}
-        />
-      </div>
+        <div className="section-divider" />
+        <div className="profile-title">{t("orders.details.saveTitle")}</div>
+        <div className="auth-field">
+          <label htmlFor="orderSaveComment">
+            {t("orders.details.saveComment")}
+          </label>
+          <textarea
+            id="orderSaveComment"
+            className="input"
+            value={saveComment}
+            onChange={(event) => setSaveComment(event.target.value)}
+            placeholder={t("orders.details.saveCommentPlaceholder")}
+          />
+        </div>
+        <div className="modal-actions">
+          <button
+            className="button"
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !hasChanges}
+          >
+            {saving ? t("orders.details.savePending") : t("orders.details.saveOrder")}
+          </button>
+        </div>
+      </section>
 
       <Toast
         message={toast?.message}

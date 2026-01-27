@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Toast from "../../components/Toast";
 import ClientOverview from "./ClientOverview";
 import ClientOrders from "./ClientOrders";
@@ -62,12 +62,12 @@ export default function ClientProfileClient({ clientId, initialClient }) {
   const [accordion, setAccordion] = useState({
     orders: false,
     addresses: false,
-    promos: false,
+    rewards: false,
     notes: false,
-    compensations: false,
     messages: false,
     audit: false
   });
+  const [rewardsTab, setRewardsTab] = useState("promos");
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [role, setRole] = useState("support");
@@ -208,16 +208,15 @@ export default function ClientProfileClient({ clientId, initialClient }) {
   }, [accordion.addresses]);
 
   useEffect(() => {
-    if (accordion.promos) {
+    if (!accordion.rewards) {
+      return;
+    }
+    if (rewardsTab === "promos") {
       loadPromos();
+      return;
     }
-  }, [accordion.promos]);
-
-  useEffect(() => {
-    if (accordion.compensations) {
-      loadCompensations();
-    }
-  }, [accordion.compensations]);
+    loadCompensations();
+  }, [accordion.rewards, rewardsTab]);
 
   useEffect(() => {
     if (accordion.messages) {
@@ -331,11 +330,6 @@ export default function ClientProfileClient({ clientId, initialClient }) {
     setPhoneVisible(true);
   };
 
-  const primaryAddress = useMemo(
-    () => addresses.find((address) => address.is_primary),
-    [addresses]
-  );
-  const lastPromo = useMemo(() => promos[0] || null, [promos]);
   const openAccordion = (key) =>
     setAccordion((prev) => ({ ...prev, [key]: true }));
   const toggleAccordion = (key) =>
@@ -366,12 +360,13 @@ export default function ClientProfileClient({ clientId, initialClient }) {
           client={client}
           metrics={metrics}
           loading={metricsLoading}
-          primaryAddress={primaryAddress}
-          lastPromo={lastPromo}
           phoneVisible={phoneVisible}
           onRevealPhone={handleRevealPhone}
           onManageAddresses={() => openAccordion("addresses")}
-          onViewPromos={() => openAccordion("promos")}
+          onViewPromos={() => {
+            setRewardsTab("promos");
+            openAccordion("rewards");
+          }}
         />
 
         <div className="profile-section">
@@ -425,25 +420,40 @@ export default function ClientProfileClient({ clientId, initialClient }) {
               />
             </details>
 
-            <details open={accordion.promos} onToggle={() => toggleAccordion("promos")}>
-              <summary>{t("clients.accordion.promos")}</summary>
-              <ClientPromos
-                clientId={clientId}
-                promos={promos}
-                loading={promosLoading}
-                error={error}
-                role={role}
-                onReload={loadPromos}
-              />
-            </details>
-
-            <details open={accordion.compensations} onToggle={() => toggleAccordion("compensations")}>
-              <summary>{t("clients.accordion.compensations")}</summary>
-              <ClientCompensations
-                data={compensations}
-                loading={compensationsLoading}
-                error={error}
-              />
+            <details open={accordion.rewards} onToggle={() => toggleAccordion("rewards")}>
+              <summary>{t("clients.rewards.title")}</summary>
+              <div className="tabs">
+                <button
+                  type="button"
+                  className={`tab ${rewardsTab === "promos" ? "active" : ""}`}
+                  onClick={() => setRewardsTab("promos")}
+                >
+                  {t("clients.rewards.promos")}
+                </button>
+                <button
+                  type="button"
+                  className={`tab ${rewardsTab === "compensations" ? "active" : ""}`}
+                  onClick={() => setRewardsTab("compensations")}
+                >
+                  {t("clients.rewards.compensations")}
+                </button>
+              </div>
+              {rewardsTab === "promos" ? (
+                <ClientPromos
+                  clientId={clientId}
+                  promos={promos}
+                  loading={promosLoading}
+                  error={error}
+                  role={role}
+                  onReload={loadPromos}
+                />
+              ) : (
+                <ClientCompensations
+                  data={compensations}
+                  loading={compensationsLoading}
+                  error={error}
+                />
+              )}
             </details>
 
             <details open={accordion.messages} onToggle={() => toggleAccordion("messages")}>

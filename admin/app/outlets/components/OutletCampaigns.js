@@ -257,7 +257,11 @@ export default function OutletCampaigns({ outletId, role }) {
           method: "POST"
         });
         if (!result.ok) {
-          setToast({ type: "error", message: t(result.error) });
+          const message =
+            result.status >= 500
+              ? t("outlets.campaigns.errors.activate")
+              : t(result.error);
+          setToast({ type: "error", message });
           return;
         }
         setToast({ type: "success", message: t("outlets.campaigns.activated") });
@@ -275,7 +279,9 @@ export default function OutletCampaigns({ outletId, role }) {
           method: "POST"
         });
         if (!result.ok) {
-          setToast({ type: "error", message: t(result.error) });
+          const message =
+            result.status >= 500 ? t("outlets.campaigns.errors.pause") : t(result.error);
+          setToast({ type: "error", message });
           return;
         }
         setToast({ type: "success", message: t("outlets.campaigns.paused") });

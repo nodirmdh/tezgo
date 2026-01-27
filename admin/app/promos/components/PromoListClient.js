@@ -137,6 +137,9 @@ export default function PromoListClient() {
       setToast({ type: "error", message: t(result.error) });
       return;
     }
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("Promo created", result.data);
+    }
     setToast({ type: "success", message: t("promos.toasts.created") });
     setCreateOpen(false);
     setCreateForm({
@@ -153,6 +156,7 @@ export default function PromoListClient() {
       apply_all_outlets: true,
       first_order_only: 0
     });
+    setFilters((current) => ({ ...current, page: 1 }));
     fetchPromos();
   };
 
@@ -206,6 +210,15 @@ export default function PromoListClient() {
           {[...Array(6)].map((_, index) => (
             <div key={index} className="skeleton-row" />
           ))}
+        </div>
+      ) : data.items.length === 0 ? (
+        <div className="empty-state">
+          {t("promos.empty")}
+          <div className="modal-actions">
+            <button className="button" type="button" onClick={() => setCreateOpen(true)}>
+              {t("promos.actions.create")}
+            </button>
+          </div>
         </div>
       ) : (
         <table className="table">

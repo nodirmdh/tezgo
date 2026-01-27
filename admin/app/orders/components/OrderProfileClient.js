@@ -7,7 +7,6 @@ import { apiJson } from "../../../lib/api/client";
 import OrderTabs from "./OrderTabs";
 import OrderOverview from "./OrderOverview";
 import OrderTimeline from "./OrderTimeline";
-import OrderSupport from "./OrderSupport";
 import { translateStatus } from "../../../lib/i18n";
 import { useLocale } from "../../components/LocaleProvider";
 
@@ -97,9 +96,6 @@ export default function OrderProfileClient({ orderId, initialOrder }) {
           role={role}
           onNoteAdded={loadEvents}
         />
-      ) : null}
-      {activeTab === "support" ? (
-        <OrderSupport orderId={orderId} role={role} />
       ) : null}
     </div>
   );

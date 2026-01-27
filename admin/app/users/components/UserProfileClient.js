@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiJson } from "../../../lib/api/client";
 import Toast from "../../components/Toast";
 import UserOverview from "./UserOverview";
@@ -12,12 +13,23 @@ import { translateRole, translateStatus } from "../../../lib/i18n";
 import { useLocale } from "../../components/LocaleProvider";
 
 const defaultOrders = { items: [], page: 1, page_size: 10, total: 0 };
+const SECTION_STORAGE_KEY = "admin.userProfileSection";
+const allowedSections = new Set([
+  "overview",
+  "orders",
+  "finance",
+  "activity",
+  "audit"
+]);
 
 export default function UserProfileClient({ userId, initialUser }) {
   const { locale, t } = useLocale();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [user, setUser] = useState(initialUser);
   const [role, setRole] = useState("Support");
   const [toast, setToast] = useState(null);
+  const [activeSection, setActiveSection] = useState("overview");
   const [tabState, setTabState] = useState({
     orders: { data: defaultOrders, loading: false, error: null },
     finance: { data: null, loading: false, error: null },
@@ -39,6 +51,28 @@ export default function UserProfileClient({ userId, initialUser }) {
     const parsed = JSON.parse(stored);
     setRole(parsed.role || "Support");
   }, []);
+
+  useEffect(() => {
+    const fromQuery = searchParams?.get("section");
+    if (fromQuery && allowedSections.has(fromQuery)) {
+      setActiveSection(fromQuery);
+      localStorage.setItem(SECTION_STORAGE_KEY, fromQuery);
+      return;
+    }
+    const storedSection = localStorage.getItem(SECTION_STORAGE_KEY);
+    if (storedSection && allowedSections.has(storedSection)) {
+      setActiveSection(storedSection);
+    }
+  }, [searchParams]);
+
+  const updateSection = (next) => {
+    const value = allowedSections.has(next) ? next : "overview";
+    setActiveSection(value);
+    localStorage.setItem(SECTION_STORAGE_KEY, value);
+    const params = new URLSearchParams(searchParams?.toString());
+    params.set("section", value);
+    router.replace(`?${params.toString()}`);
+  };
 
   const loadOrders = async (filters) => {
     setTabState((prev) => ({
@@ -139,14 +173,28 @@ export default function UserProfileClient({ userId, initialUser }) {
   };
 
   useEffect(() => {
-    loadOrders(orderFilters);
-  }, [orderFilters, userId]);
+    if (activeSection === "orders") {
+      loadOrders(orderFilters);
+    }
+  }, [orderFilters, userId, activeSection]);
 
   useEffect(() => {
-    loadFinance();
-    loadActivity();
-    loadAudit();
-  }, [userId]);
+    if (activeSection === "finance") {
+      loadFinance();
+    }
+  }, [userId, activeSection]);
+
+  useEffect(() => {
+    if (activeSection === "activity") {
+      loadActivity();
+    }
+  }, [userId, activeSection]);
+
+  useEffect(() => {
+    if (activeSection === "audit") {
+      loadAudit();
+    }
+  }, [userId, activeSection]);
 
   const handleUpdateUser = async (formData) => {
     const payload = {
@@ -207,53 +255,97 @@ export default function UserProfileClient({ userId, initialUser }) {
         </div>
 
         <div className="profile-section">
-          <UserOverview
-            embedded
-            user={user}
-            role={role}
-            onUpdate={handleUpdateUser}
-            onDelete={handleDeleteUser}
-            onToast={(message, type) => setToast({ message, type })}
-          />
-        </div>
+          <div className="accordion">
+            <details
+              open={activeSection === "overview"}
+              onToggle={(event) => {
+                if (event.currentTarget.open) {
+                  updateSection("overview");
+                }
+              }}
+            >
+              <summary>{t("users.overview.title")}</summary>
+              <UserOverview
+                embedded
+                user={user}
+                role={role}
+                onUpdate={handleUpdateUser}
+                onDelete={handleDeleteUser}
+                onToast={(message, type) => setToast({ message, type })}
+              />
+            </details>
 
-        <div className="profile-section">
-          <UserOrders
-            embedded
-            data={tabState.orders.data}
-            filters={orderFilters}
-            loading={tabState.orders.loading}
-            error={tabState.orders.error}
-            onFilterChange={(filters) => setOrderFilters(filters)}
-            onPageChange={(page) => setOrderFilters({ ...orderFilters, page })}
-          />
-        </div>
+            <details
+              open={activeSection === "orders"}
+              onToggle={(event) => {
+                if (event.currentTarget.open) {
+                  updateSection("orders");
+                }
+              }}
+            >
+              <summary>{t("users.orders.title")}</summary>
+              <UserOrders
+                embedded
+                data={tabState.orders.data}
+                filters={orderFilters}
+                loading={tabState.orders.loading}
+                error={tabState.orders.error}
+                onFilterChange={(filters) => setOrderFilters(filters)}
+                onPageChange={(page) => setOrderFilters({ ...orderFilters, page })}
+              />
+            </details>
 
-        <div className="profile-section">
-          <UserFinance
-            embedded
-            data={financeData}
-            loading={tabState.finance.loading}
-            error={tabState.finance.error}
-          />
-        </div>
+            <details
+              open={activeSection === "finance"}
+              onToggle={(event) => {
+                if (event.currentTarget.open) {
+                  updateSection("finance");
+                }
+              }}
+            >
+              <summary>{t("users.finance.title")}</summary>
+              <UserFinance
+                embedded
+                data={financeData}
+                loading={tabState.finance.loading}
+                error={tabState.finance.error}
+              />
+            </details>
 
-        <div className="profile-section">
-          <UserActivity
-            embedded
-            data={tabState.activity.data}
-            loading={tabState.activity.loading}
-            error={tabState.activity.error}
-          />
-        </div>
+            <details
+              open={activeSection === "activity"}
+              onToggle={(event) => {
+                if (event.currentTarget.open) {
+                  updateSection("activity");
+                }
+              }}
+            >
+              <summary>{t("users.activity.title")}</summary>
+              <UserActivity
+                embedded
+                data={tabState.activity.data}
+                loading={tabState.activity.loading}
+                error={tabState.activity.error}
+              />
+            </details>
 
-        <div className="profile-section">
-          <UserAudit
-            embedded
-            data={tabState.audit.data}
-            loading={tabState.audit.loading}
-            error={tabState.audit.error}
-          />
+            <details
+              open={activeSection === "audit"}
+              onToggle={(event) => {
+                if (event.currentTarget.open) {
+                  updateSection("audit");
+                }
+              }}
+            >
+              <summary>{t("users.audit.title")}</summary>
+              <UserAudit
+                embedded
+                data={tabState.audit.data}
+                loading={tabState.audit.loading}
+                error={tabState.audit.error}
+              />
+            </details>
+          </div>
         </div>
       </section>
     </div>
