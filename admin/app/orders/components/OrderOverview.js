@@ -31,10 +31,12 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
   const subtotalFood = order.subtotal_food ?? 0;
   const deliveryFee = order.courier_fee ?? 0;
   const serviceFee = order.service_fee ?? 0;
-  const discount = order.discount_amount ?? 0;
+  const promoDiscount = order.promo_discount_amount ?? order.discount_amount ?? 0;
+  const campaignDiscount = order.campaign_discount_amount ?? 0;
+  const totalDiscount = promoDiscount + campaignDiscount;
   const totalAmountBase =
     order.total_amount ??
-    Math.max(0, subtotalFood + deliveryFee + serviceFee - discount);
+    Math.max(0, subtotalFood + deliveryFee + serviceFee - totalDiscount);
 
   useEffect(() => {
     setDraftItems(toDraftItems(items));
@@ -72,9 +74,9 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
   );
   const subtotalFoodDisplay = hasChanges ? draftSubtotal : subtotalFood;
   const totalAmountDisplay = hasChanges
-    ? Math.max(0, subtotalFoodDisplay + deliveryFee + serviceFee - discount)
+    ? Math.max(0, subtotalFoodDisplay + deliveryFee + serviceFee - totalDiscount)
     : totalAmountBase;
-  const restaurantTotal = Math.max(0, subtotalFoodDisplay - discount);
+  const restaurantTotal = Math.max(0, subtotalFoodDisplay - totalDiscount);
 
   const handleItemChange = (clientId, field, value) => {
     setDraftItems((current) =>
@@ -125,6 +127,7 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
       comment: saveComment,
       items: draftItems.map((item) => ({
         id: item.id,
+        item_id: item.item_id ?? null,
         title: item.title,
         description: item.description,
         photo_url: item.photo_url,
@@ -299,8 +302,12 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
             <span>{formatCurrency(serviceFee, t)}</span>
           </div>
           <div className="profile-row">
-            <span className="muted">{t("orders.details.discount")}</span>
-            <span>{formatCurrency(discount, t)}</span>
+            <span className="muted">{t("orders.details.promoDiscount")}</span>
+            <span>{formatCurrency(promoDiscount, t)}</span>
+          </div>
+          <div className="profile-row">
+            <span className="muted">{t("orders.details.campaignDiscount")}</span>
+            <span>{formatCurrency(campaignDiscount, t)}</span>
           </div>
           <div className="profile-row">
             <span className="muted">{t("orders.details.promoCode")}</span>

@@ -95,18 +95,62 @@
 - Цена
 - SKU
 
-## 5. Профиль точки → Кампании
+### 4.3 Профиль блюда (Item Profile)
+- Read-only блок: ID позиции, ID точки, created_at/updated_at.
+- Контент: название, короткое название, описание, категории, SKU, приоритет.
+- Медиа: image_url + toggle image_enabled.
+- Флаги: is_visible, is_adult.
+- Доставка: delivery_methods (courier/pickup).
+- Склад: base_price, stock_qty, текущая доступность.
+- Стоплист: active, until, reason + авто-снятие при истечении срока.
+- Питательность: kcal/protein/fat/carbs.
+- Действия: Save, Duplicate, Copy-to-outlet, Back.
+- Все изменения логируются в audit log.
 
-### 5.1 Создание кампании
-Форма создания:
-- Выбор позиций (multiple)
-- Возможность объединения позиций в сет
-- Процент скидки
-- Период действия
-- Выбор точки/точек
-- Статус кампании
+## 5. Профиль точки → Кампании и сеты
 
-## 6. Профиль курьера
+### 5.1 Сущность кампании
+- Типы: discount, bundle, bogo.
+- Статусы: draft, active, paused, expired, archived (expired, если end_at прошло).
+- Расписание: start_at/end_at, active_days, active_hours.
+- Лимиты: min_order_amount, max_uses_total, max_uses_per_client.
+- Delivery methods: courier/pickup.
+- Stoplist policy: hide/disable.
+
+### 5.2 Состав кампании
+- Список позиций (items) с qty и required.
+- Для discount: discount_type и discount_value по позиции.
+- Для bundle: цена сета (fixed) или процент (percent).
+
+### 5.3 Валидации
+- start_at <= end_at.
+- items не пустые.
+- bundle: либо fixed_price, либо percent_discount.
+- bundle выгоднее суммы позиций: warning, если равно; error, если выше суммы.
+- лимиты >= 0.
+
+### 5.4 Admin UI и интеграции
+- Вкладка Campaigns в профиле точки: таблица + фильтры + create.
+- Campaign Profile: секции basic/schedule/limits/items/bundle + actions Save/Activate/Pause/Archive/Duplicate.
+- Валидационные предупреждения отображаются через `/api/campaigns/:id/validate`.
+- Таблица заказов по кампании (campaign_usage).
+- Все действия пишутся в audit log.
+
+## 6. Order pricing и ledger
+
+### 6.1 Расчет заказа
+- Единый расчет на backend (computeOrderPricing).
+- Базовый subtotal из order_items.
+- Promo discount и campaign/bundle discount рассчитываются отдельно.
+- Итог: subtotal + fees - promo_discount - campaign_discount.
+- Сохраняются: promo_discount_amount, campaign_discount_amount, total_amount.
+
+### 6.2 Ledger и корректировки
+- Все денежные эффекты проходят через finance_ledger.
+- Для ручных/авто корректировок создаются записи order_adjustments.
+- Компенсации и возвраты пишутся в ledger и audit log.
+
+## 7. Профиль курьера
 
 ### Обязательные данные
 - ФИО

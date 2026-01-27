@@ -40,6 +40,7 @@ const translations = {
       edit: "Изменить",
       next: "Вперед",
       page: "Страница {page} из {total}",
+      refresh: "Обновить",
       role: "Роль",
       save: "Сохранить",
       search: "Поиск",
@@ -449,6 +450,8 @@ const translations = {
         deliveryFee: "Стоимость доставки",
         serviceFee: "Сервисный сбор",
         discount: "Скидка",
+        promoDiscount: "Скидка по промокоду",
+        campaignDiscount: "Скидка по кампании",
         promoCode: "Промокод",
         total: "Итоговая сумма",
         restaurantTotal: "Сумма для ресторана",
@@ -806,17 +809,58 @@ const translations = {
       campaigns: {
         title: "Кампании",
         create: "Создать кампанию",
-        edit: "Редактировать кампанию",
+        open: "Профиль",
         saved: "Кампания сохранена",
         empty: "Кампаний пока нет",
+        search: "Поиск кампаний",
+        filters: {
+          allStatuses: "Все статусы",
+          allTypes: "Все типы"
+        },
+        sort: {
+          priority: "Приоритет",
+          created: "Дата создания",
+          start: "Дата старта",
+          end: "Дата окончания"
+        },
         activateTitle: "Активировать кампанию?",
         activateDescription: "Кампания станет активной сразу.",
-        endTitle: "Поставить кампанию на паузу?",
-        endDescription: "Кампания будет приостановлена сразу.",
+        pauseTitle: "Поставить кампанию на паузу?",
+        pauseDescription: "Кампания будет приостановлена сразу.",
+        archiveTitle: "Архивировать кампанию?",
+        archiveDescription: "Кампания будет перенесена в архив.",
+        duplicateTitle: "Дублировать кампанию?",
+        duplicateDescription: "Будет создана копия кампании в статусе черновик.",
         activate: "Активировать",
-        end: "Пауза",
+        pause: "Пауза",
+        archive: "Архивировать",
+        duplicate: "Дублировать",
         activated: "Кампания активирована",
-        ended: "Кампания приостановлена",
+        paused: "Кампания приостановлена",
+        archived: "Кампания архивирована",
+        duplicated: "Кампания продублирована",
+        warnings: "Предупреждения",
+        orders: "Заказы по кампании",
+        ordersEmpty: "Заказов пока нет",
+        ordersTable: {
+          order: "Заказ",
+          client: "Клиент",
+          amount: "Скидка",
+          date: "Дата"
+        },
+        profile: {
+          title: "Профиль кампании",
+          description: "Настройки кампаний и сетов.",
+          meta: "Служебные данные",
+          outlet: "Точка",
+          partner: "Партнер",
+          createdAt: "Создано",
+          updatedAt: "Обновлено",
+          basic: "Основное",
+          schedule: "Расписание",
+          limits: "Лимиты",
+          actions: "Действия"
+        },
         itemsTitle: "Позиции кампании",
         addItem: "Добавить позицию",
         itemsEmpty: "Позиции пока не добавлены",
@@ -826,9 +870,9 @@ const translations = {
         itemSaved: "Позиция сохранена",
         itemRemoved: "Позиция удалена",
         titleRequired: "Название обязательно",
-        outletsRequired: "Выберите хотя бы одну точку",
         table: {
           title: "Название",
+          type: "Тип",
           status: "Статус",
           start: "Старт",
           end: "Финиш",
@@ -836,16 +880,26 @@ const translations = {
         },
         itemsTable: {
           item: "Позиция",
-          basePrice: "Базовая цена",
-          discount: "Скидка",
-          resultPrice: "Цена по акции"
+          qty: "Кол-во",
+          required: "Обязательно",
+          discount: "Скидка"
         },
         form: {
           title: "Название",
-          outlets: "Точки",
+          description: "Описание",
+          type: "Тип",
+          priority: "Приоритет",
+          status: "Статус",
           start: "Начало",
           end: "Окончание",
-          status: "Статус",
+          activeFrom: "Активно с",
+          activeTo: "Активно до",
+          minOrder: "Мин. сумма заказа",
+          maxUsesTotal: "Лимит использований",
+          maxUsesClient: "Лимит на клиента",
+          stoplistPolicy: "Политика стоплиста",
+          delivery: "Способы доставки",
+          bundlePricing: "Цена сета",
           item: "Позиция",
           qty: "Кол-во",
           discountType: "Тип скидки",
@@ -858,6 +912,34 @@ const translations = {
           paused: "Пауза",
           expired: "Истекла",
           archived: "Архив"
+        },
+        types: {
+          discount: "Скидка",
+          bundle: "Сет",
+          bogo: "1+1"
+        },
+        delivery: {
+          courier: "Курьер",
+          pickup: "Самовывоз"
+        },
+        days: {
+          mon: "Пн",
+          tue: "Вт",
+          wed: "Ср",
+          thu: "Чт",
+          fri: "Пт",
+          sat: "Сб",
+          sun: "Вс"
+        },
+        stoplist: {
+          hide: "Скрыть из меню",
+          disable: "Отключить"
+        },
+        bundle: {
+          fixed: "Фикс цена",
+          percent: "Процент",
+          fixedPrice: "Цена сета",
+          percentDiscount: "Скидка %"
         },
         discount: {
           percent: "Процент",
@@ -1001,69 +1083,85 @@ const translations = {
           new: "Новая цена",
           reason: "Причина",
           changedAt: "Изменено"
+        },
+        profile: {
+          open: "Профиль",
+          title: "Профиль блюда",
+          description: "Детали позиции меню и доступность.",
+          sections: {
+            meta: "Служебные данные",
+            basic: "Основное",
+            media: "Изображение",
+            pricing: "Цена и наличие",
+            delivery: "Способы доставки",
+            stoplist: "Стоплист",
+            nutrition: "КБЖУ",
+            ids: "Идентификаторы",
+            actions: "Действия"
+          },
+          fields: {
+            itemId: "ID блюда",
+            outletId: "ID точки",
+            createdAt: "Создано",
+            updatedAt: "Обновлено",
+            outletUpdatedAt: "Обновлено в точке",
+            title: "Название",
+            shortTitle: "Короткое название",
+            category: "Категория",
+            categories: "Категории (через запятую)",
+            sku: "SKU",
+            description: "Описание",
+            imageUrl: "Изображение (URL)",
+            imageEnabled: "Показывать изображение",
+            weight: "Вес (г)",
+            priority: "Приоритет",
+            isAdult: "18+",
+            basePrice: "Базовая цена",
+            currentPrice: "Текущая цена",
+            stockQty: "Остаток",
+            isAvailable: "Доступность",
+            isVisible: "Показывать в меню",
+            stoplistActive: "Стоплист",
+            stoplistReason: "Причина стоплиста",
+            stoplistUntil: "Стоплист до",
+            unavailableReason: "Причина недоступности",
+            unavailableUntil: "Недоступно до",
+            kcal: "Ккал",
+            protein: "Белки",
+            fat: "Жиры",
+            carbs: "Углеводы",
+            coreId: "Core ID",
+            originId: "Origin ID"
+          },
+          delivery: {
+            courier: "Курьер",
+            pickup: "Самовывоз"
+          },
+          stoplist: {
+            on: "Включен",
+            off: "Выключен"
+          },
+          actions: {
+            duplicate: "Дублировать",
+            duplicateTitle: "Дублировать блюдо?",
+            duplicateDescription: "Будет создана копия позиции.",
+            copyToOutlet: "Копировать в точку",
+            copyTitle: "Копировать в другую точку?",
+            copyDescription: "Позиция будет продублирована в указанную точку.",
+            copyPrompt: "Введите ID точки"
+          },
+          toasts: {
+            saved: "Позиция сохранена",
+            duplicated: "Позиция продублирована",
+            copied: "Позиция скопирована"
+          },
+          validation: {
+            stoplistReasonRequired: "Укажите причину стоплиста",
+            unavailableReasonRequired: "Укажите причину недоступности",
+            targetOutlet: "Укажите корректный ID точки"
+          }
         }
       },
-      campaigns: {
-        title: "Кампании",
-        create: "Создать кампанию",
-        edit: "Редактировать кампанию",
-        saved: "Кампания сохранена",
-        activateTitle: "Активировать кампанию?",
-        activateDescription: "Кампания станет активной сразу.",
-        activated: "Кампания активирована",
-        endTitle: "Завершить кампанию?",
-        endDescription: "Кампания завершится сразу.",
-        ended: "Кампания завершена",
-        empty: "Кампаний пока нет",
-        table: {
-          title: "Название",
-          status: "Статус",
-          start: "Старт",
-          end: "Окончание",
-          items: "Товары"
-        },
-        itemsTitle: "Товары кампании",
-        itemsEmpty: "Товаров пока нет",
-        addItem: "Добавить товар",
-        itemSaved: "Товар кампании сохранен",
-        itemRemoved: "Товар удален",
-        itemsRequired: "???????? ???? ?? ???? ???????",
-        outletsRequired: "???????? ???? ?? ???? ?????",
-        itemRemoveTitle: "Удалить товар из кампании?",
-        itemRemoveDescription: "Товар будет удален сразу.",
-        itemTitle: "Товар кампании",
-        selectItem: "Выберите товар",
-        selectItems: "???????? ???????",
-        form: {
-          title: "Название",
-          start: "Старт",
-          end: "Окончание",
-          item: "Товар",
-          discountType: "Тип скидки",
-          discountValue: "Значение скидки",
-          outlets: "?????",
-          status: "??????",
-          bundle: "???"
-        },
-        itemsTable: {
-          item: "Товар",
-          basePrice: "Базовая цена",
-          discount: "Скидка",
-          bundle: "???",
-          resultPrice: "Цена по акции"
-        },
-        discount: {
-          percent: "процент",
-          fixed: "фикс",
-          newPrice: "новая цена"
-        },
-        status: {
-          planned: "?????????????",
-          active: "???????",
-          ended: "?????????"
-        },
-        remove: "Удалить"
-      }
     },
     promos: {
       profile: {
@@ -1207,6 +1305,7 @@ const translations = {
       edit: "Tahrirlash",
       next: "Keyingi",
       page: "{page} / {total} sahifa",
+      refresh: "Yangilash",
       role: "Rol",
       save: "Saqlash",
       search: "Qidirish",
@@ -1616,6 +1715,8 @@ const translations = {
         deliveryFee: "Yetkazish narxi",
         serviceFee: "Servis to'lovi",
         discount: "Chegirma",
+        promoDiscount: "Promokod chegirmasi",
+        campaignDiscount: "Kampaniya chegirmasi",
         promoCode: "Promokod",
         total: "Yakuniy summa",
         restaurantTotal: "Restoran uchun summa",
@@ -2105,68 +2206,225 @@ const translations = {
           new: "Yangi narx",
           reason: "Sabab",
           changedAt: "O'zgargan sana"
+        },
+        profile: {
+          open: "Profil",
+          title: "Taom profili",
+          description: "Menyu pozitsiyasi va mavjudligi haqida.",
+          sections: {
+            meta: "Xizmat ma'lumotlari",
+            basic: "Asosiy",
+            media: "Rasm",
+            pricing: "Narx va mavjudlik",
+            delivery: "Yetkazib berish usullari",
+            stoplist: "Stop-list",
+            nutrition: "KBJU",
+            ids: "Identifikatorlar",
+            actions: "Amallar"
+          },
+          fields: {
+            itemId: "Taom ID",
+            outletId: "Filial ID",
+            createdAt: "Yaratilgan",
+            updatedAt: "Yangilangan",
+            outletUpdatedAt: "Filialda yangilangan",
+            title: "Nomi",
+            shortTitle: "Qisqa nom",
+            category: "Kategoriya",
+            categories: "Kategoriyalar (vergul bilan)",
+            sku: "SKU",
+            description: "Tavsif",
+            imageUrl: "Rasm (URL)",
+            imageEnabled: "Rasmni ko'rsatish",
+            weight: "Vazn (g)",
+            priority: "Prioritet",
+            isAdult: "18+",
+            basePrice: "Bazaviy narx",
+            currentPrice: "Joriy narx",
+            stockQty: "Qoldiq",
+            isAvailable: "Mavjudlik",
+            isVisible: "Menyuda ko'rsatish",
+            stoplistActive: "Stop-list",
+            stoplistReason: "Stop-list sababi",
+            stoplistUntil: "Stop-list muddati",
+            unavailableReason: "Mavjud emas sababi",
+            unavailableUntil: "Mavjud emasgacha",
+            kcal: "Kkal",
+            protein: "Oqsil",
+            fat: "Yog'",
+            carbs: "Uglevod",
+            coreId: "Core ID",
+            originId: "Origin ID"
+          },
+          delivery: {
+            courier: "Kuryer",
+            pickup: "Olib ketish"
+          },
+          stoplist: {
+            on: "Yoqilgan",
+            off: "O'chirilgan"
+          },
+          actions: {
+            duplicate: "Dublikat",
+            duplicateTitle: "Taomni dublikat qilamizmi?",
+            duplicateDescription: "Pozitsiyaning nusxasi yaratiladi.",
+            copyToOutlet: "Filialga nusxalash",
+            copyTitle: "Boshqa filialga nusxalaysizmi?",
+            copyDescription: "Pozitsiya tanlangan filialga ko'chiriladi.",
+            copyPrompt: "Filial ID kiriting"
+          },
+          toasts: {
+            saved: "Pozitsiya saqlandi",
+            duplicated: "Pozitsiya dublikat qilindi",
+            copied: "Pozitsiya nusxalandi"
+          },
+          validation: {
+            stoplistReasonRequired: "Stop-list sababi kerak",
+            unavailableReasonRequired: "Mavjud emas sababi kerak",
+            targetOutlet: "To'g'ri filial ID kiriting"
+          }
         }
       },
       campaigns: {
         title: "Kampaniyalar",
         create: "Kampaniya yaratish",
-        edit: "Kampaniyani tahrirlash",
+        open: "Profil",
         saved: "Kampaniya saqlandi",
-        activateTitle: "Kampaniyani faollashtirasizmi?",
-        activateDescription: "Kampaniya faollashadi.",
-        activated: "Kampaniya faollashdi",
-        endTitle: "Kampaniyani yakunlaysizmi?",
-        endDescription: "Kampaniya yakunlanadi.",
-        ended: "Kampaniya yakunlandi",
         empty: "Kampaniyalar yo'q",
+        search: "Kampaniyalarni qidirish",
+        filters: {
+          allStatuses: "Barcha holatlar",
+          allTypes: "Barcha turlar"
+        },
+        sort: {
+          priority: "Ustuvorlik",
+          created: "Yaratilgan sana",
+          start: "Boshlanish sanasi",
+          end: "Tugash sanasi"
+        },
+        activateTitle: "Kampaniyani faollashtirasizmi?",
+        activateDescription: "Kampaniya darhol faollashadi.",
+        pauseTitle: "Kampaniyani pauza qilasizmi?",
+        pauseDescription: "Kampaniya darhol to'xtatiladi.",
+        archiveTitle: "Kampaniyani arxivlaysizmi?",
+        archiveDescription: "Kampaniya arxivga ko'chiriladi.",
+        duplicateTitle: "Kampaniyani nusxalaysizmi?",
+        duplicateDescription: "Nusxa 'qoralama' holatda yaratiladi.",
+        activate: "Faollashtirish",
+        pause: "Pauza",
+        archive: "Arxivlash",
+        duplicate: "Nusxalash",
+        activated: "Kampaniya faollashtirildi",
+        paused: "Kampaniya pauzaga qo'yildi",
+        archived: "Kampaniya arxivlandi",
+        duplicated: "Kampaniya nusxalandi",
+        warnings: "Ogohlantirishlar",
+        orders: "Kampaniya bo'yicha buyurtmalar",
+        ordersEmpty: "Buyurtmalar yo'q",
+        ordersTable: {
+          order: "Buyurtma",
+          client: "Mijoz",
+          amount: "Chegirma",
+          date: "Sana"
+        },
+        profile: {
+          title: "Kampaniya profili",
+          description: "Kampaniyalar va setlar sozlamalari.",
+          meta: "Xizmat ma'lumotlari",
+          outlet: "Shoxobcha",
+          partner: "Hamkor",
+          createdAt: "Yaratilgan",
+          updatedAt: "Yangilangan",
+          basic: "Asosiy",
+          schedule: "Jadval",
+          limits: "Limitlar",
+          actions: "Amallar"
+        },
+        itemsTitle: "Kampaniya pozitsiyalari",
+        addItem: "Pozitsiya qo'shish",
+        itemsEmpty: "Pozitsiyalar hali yo'q",
+        itemTitle: "Kampaniya pozitsiyasi",
+        selectItems: "Pozitsiyani tanlang",
+        itemsRequired: "Kamida bitta pozitsiya qo'shing",
+        itemSaved: "Pozitsiya saqlandi",
+        itemRemoved: "Pozitsiya olib tashlandi",
+        titleRequired: "Nomi majburiy",
         table: {
           title: "Nomi",
+          type: "Turi",
           status: "Holat",
           start: "Boshlanish",
           end: "Tugash",
-          items: "Mahsulotlar"
-        },
-        itemsTitle: "Kampaniya mahsulotlari",
-        itemsEmpty: "Mahsulotlar yo'q",
-        addItem: "Mahsulot qo'shish",
-        itemSaved: "Mahsulot saqlandi",
-        itemRemoved: "Mahsulot olib tashlandi",
-        itemsRequired: "Kamida bitta pozitsiyani tanlang",
-        outletsRequired: "Kamida bitta shoxobchani tanlang",
-        itemRemoveTitle: "Mahsulotni olib tashlaysizmi?",
-        itemRemoveDescription: "Mahsulot kampaniyadan olib tashlanadi.",
-        itemTitle: "Mahsulot",
-        selectItem: "Mahsulot tanlang",
-        selectItems: "Pozitsiyalarni tanlang",
-        form: {
-          title: "Nomi",
-          start: "Boshlanish",
-          end: "Tugash",
-          item: "Mahsulot",
-          discountType: "Chegirma turi",
-          discountValue: "Chegirma qiymati",
-          outlets: "Shoxobchalar",
-          status: "Holat",
-          bundle: "Set"
+          items: "Pozitsiyalar"
         },
         itemsTable: {
-          item: "Mahsulot",
-          basePrice: "Asosiy narx",
+          item: "Pozitsiya",
+          qty: "Soni",
+          required: "Majburiy",
+          discount: "Chegirma"
+        },
+        form: {
+          title: "Nomi",
+          description: "Tavsif",
+          type: "Turi",
+          priority: "Ustuvorlik",
+          status: "Holat",
+          start: "Boshlanish",
+          end: "Tugash",
+          activeFrom: "Faol (dan)",
+          activeTo: "Faol (gacha)",
+          minOrder: "Min. buyurtma summasi",
+          maxUsesTotal: "Umumiy limit",
+          maxUsesClient: "Mijoz limiti",
+          stoplistPolicy: "Stop-list siyosati",
+          delivery: "Yetkazish usullari",
+          bundlePricing: "Set narxi",
+          item: "Pozitsiya",
+          qty: "Soni",
+          discountType: "Chegirma turi",
+          discountValue: "Chegirma qiymati",
+          required: "Majburiy"
+        },
+        status: {
+          draft: "Qoralama",
+          active: "Faol",
+          paused: "Pauza",
+          expired: "Muddati o'tgan",
+          archived: "Arxiv"
+        },
+        types: {
           discount: "Chegirma",
           bundle: "Set",
-          resultPrice: "Natijaviy narx"
+          bogo: "1+1"
+        },
+        delivery: {
+          courier: "Kuryer",
+          pickup: "Olib ketish"
+        },
+        days: {
+          mon: "Du",
+          tue: "Se",
+          wed: "Ch",
+          thu: "Pa",
+          fri: "Ju",
+          sat: "Sh",
+          sun: "Ya"
+        },
+        stoplist: {
+          hide: "Menyudan yashirish",
+          disable: "O'chirish"
+        },
+        bundle: {
+          fixed: "Fiks narx",
+          percent: "Foiz",
+          fixedPrice: "Set narxi",
+          percentDiscount: "Chegirma %"
         },
         discount: {
           percent: "Foiz",
           fixed: "Fiks",
           newPrice: "Yangi narx"
-        },
-        status: {
-          planned: "Rejalashtirilgan",
-          active: "Faol",
-          ended: "Tugagan"
-        },
-        remove: "Olib tashlash"
+        }
       }
     },
     promos: {
@@ -2311,6 +2569,7 @@ const translations = {
       edit: "Ózgertiw",
       next: "Keyingi",
       page: "{page} / {total} bet",
+      refresh: "Jańalaw",
       role: "Ról",
       save: "Saqtaw",
       search: "Izlew",
@@ -2578,6 +2837,87 @@ const translations = {
         empty: "Jazıw joq"
       }
     },
+    outlets: {
+      menu: {
+        profile: {
+          open: "Profil",
+          title: "Taom profili",
+          description: "Menyu poziciyası hám barlığı haqqında.",
+          sections: {
+            meta: "Xızmet maǵlıwmatı",
+            basic: "Negizgi",
+            media: "Súwret",
+            pricing: "Baha hám barlıq",
+            delivery: "Jetkiziw usılları",
+            stoplist: "Stop-list",
+            nutrition: "KBJU",
+            ids: "Identifikatorlar",
+            actions: "Ámeller"
+          },
+          fields: {
+            itemId: "Taom ID",
+            outletId: "Nokta ID",
+            createdAt: "Jaralǵan",
+            updatedAt: "Jańalanǵan",
+            outletUpdatedAt: "Noktada jańalanǵan",
+            title: "Atı",
+            shortTitle: "Qısqa at",
+            category: "Kategoriya",
+            categories: "Kategoriyalar (vergul menen)",
+            sku: "SKU",
+            description: "Sıpatlama",
+            imageUrl: "Súwret (URL)",
+            imageEnabled: "Súwretti kórsetiw",
+            weight: "Awırlıq (g)",
+            priority: "Prioritet",
+            isAdult: "18+",
+            basePrice: "Bazalıq baha",
+            currentPrice: "Aǵımdaǵı baha",
+            stockQty: "Qaldıq",
+            isAvailable: "Barlıq",
+            isVisible: "Menyuda kórsetiw",
+            stoplistActive: "Stop-list",
+            stoplistReason: "Stop-list sebebi",
+            stoplistUntil: "Stop-list múddeti",
+            unavailableReason: "Bar emes sebebi",
+            unavailableUntil: "Bar emes múddetke shekem",
+            kcal: "Kkal",
+            protein: "Aqsil",
+            fat: "May",
+            carbs: "Karbonsuwlar",
+            coreId: "Core ID",
+            originId: "Origin ID"
+          },
+          delivery: {
+            courier: "Kuryer",
+            pickup: "Ózi alıp ketew"
+          },
+          stoplist: {
+            on: "Qosılǵan",
+            off: "Óshirgen"
+          },
+          actions: {
+            duplicate: "Dublikat",
+            duplicateTitle: "Taomdı dublikat qılamız ba?",
+            duplicateDescription: "Pozitsiya nusxası jaratıladı.",
+            copyToOutlet: "Noktaǵa nusxalaw",
+            copyTitle: "Basqa noktaǵa nusxalaw?",
+            copyDescription: "Pozitsiya tanlanǵan noktaǵa köshiriledi.",
+            copyPrompt: "Nokta ID kiritiń"
+          },
+          toasts: {
+            saved: "Pozitsiya saqtaldı",
+            duplicated: "Pozitsiya dublikat qıldı",
+            copied: "Pozitsiya nusxalandı"
+          },
+          validation: {
+            stoplistReasonRequired: "Stop-list sebebi kerek",
+            unavailableReasonRequired: "Bar emes sebebi kerek",
+            targetOutlet: "Durıs nokta ID kiritiń"
+          }
+        }
+      }
+    },
     status: {
       active: "Faol",
       blocked: "Bloklandı",
@@ -2646,6 +2986,7 @@ const translations = {
       edit: "Edit",
       next: "Next",
       page: "Page {page} of {total}",
+      refresh: "Refresh",
       role: "Role",
       save: "Save",
       search: "Search",
@@ -3055,6 +3396,8 @@ const translations = {
         deliveryFee: "Delivery fee",
         serviceFee: "Service fee",
         discount: "Discount",
+        promoDiscount: "Promo discount",
+        campaignDiscount: "Campaign discount",
         promoCode: "Promo code",
         total: "Total",
         restaurantTotal: "Restaurant total",
@@ -3544,68 +3887,225 @@ const translations = {
           new: "New price",
           reason: "Reason",
           changedAt: "Changed at"
+        },
+        profile: {
+          open: "Profile",
+          title: "Item profile",
+          description: "Menu item details and availability.",
+          sections: {
+            meta: "Meta",
+            basic: "Basic",
+            media: "Media",
+            pricing: "Pricing & availability",
+            delivery: "Delivery methods",
+            stoplist: "Stop-list",
+            nutrition: "Nutrition",
+            ids: "Identifiers",
+            actions: "Actions"
+          },
+          fields: {
+            itemId: "Item ID",
+            outletId: "Outlet ID",
+            createdAt: "Created",
+            updatedAt: "Updated",
+            outletUpdatedAt: "Outlet updated",
+            title: "Title",
+            shortTitle: "Short title",
+            category: "Category",
+            categories: "Categories (comma separated)",
+            sku: "SKU",
+            description: "Description",
+            imageUrl: "Image URL",
+            imageEnabled: "Show image",
+            weight: "Weight (g)",
+            priority: "Priority",
+            isAdult: "18+",
+            basePrice: "Base price",
+            currentPrice: "Current price",
+            stockQty: "Stock",
+            isAvailable: "Availability",
+            isVisible: "Show in menu",
+            stoplistActive: "Stop-list",
+            stoplistReason: "Stop-list reason",
+            stoplistUntil: "Stop-list until",
+            unavailableReason: "Unavailable reason",
+            unavailableUntil: "Unavailable until",
+            kcal: "Kcal",
+            protein: "Protein",
+            fat: "Fat",
+            carbs: "Carbs",
+            coreId: "Core ID",
+            originId: "Origin ID"
+          },
+          delivery: {
+            courier: "Courier",
+            pickup: "Pickup"
+          },
+          stoplist: {
+            on: "On",
+            off: "Off"
+          },
+          actions: {
+            duplicate: "Duplicate",
+            duplicateTitle: "Duplicate item?",
+            duplicateDescription: "A copy of the item will be created.",
+            copyToOutlet: "Copy to outlet",
+            copyTitle: "Copy to another outlet?",
+            copyDescription: "Item will be copied to the selected outlet.",
+            copyPrompt: "Enter outlet ID"
+          },
+          toasts: {
+            saved: "Item saved",
+            duplicated: "Item duplicated",
+            copied: "Item copied"
+          },
+          validation: {
+            stoplistReasonRequired: "Stop-list reason is required",
+            unavailableReasonRequired: "Unavailable reason is required",
+            targetOutlet: "Provide a valid outlet ID"
+          }
         }
       },
       campaigns: {
         title: "Campaigns",
         create: "Create campaign",
-        edit: "Edit campaign",
+        open: "Profile",
         saved: "Campaign saved",
-        activateTitle: "Activate campaign?",
-        activateDescription: "Campaign will be activated.",
-        activated: "Campaign activated",
-        endTitle: "End campaign?",
-        endDescription: "Campaign will be ended.",
-        ended: "Campaign ended",
         empty: "No campaigns yet",
+        search: "Search campaigns",
+        filters: {
+          allStatuses: "All statuses",
+          allTypes: "All types"
+        },
+        sort: {
+          priority: "Priority",
+          created: "Created date",
+          start: "Start date",
+          end: "End date"
+        },
+        activateTitle: "Activate campaign?",
+        activateDescription: "Campaign will be activated immediately.",
+        pauseTitle: "Pause campaign?",
+        pauseDescription: "Campaign will be paused immediately.",
+        archiveTitle: "Archive campaign?",
+        archiveDescription: "Campaign will be archived.",
+        duplicateTitle: "Duplicate campaign?",
+        duplicateDescription: "A copy will be created in draft status.",
+        activate: "Activate",
+        pause: "Pause",
+        archive: "Archive",
+        duplicate: "Duplicate",
+        activated: "Campaign activated",
+        paused: "Campaign paused",
+        archived: "Campaign archived",
+        duplicated: "Campaign duplicated",
+        warnings: "Warnings",
+        orders: "Campaign orders",
+        ordersEmpty: "No orders yet",
+        ordersTable: {
+          order: "Order",
+          client: "Client",
+          amount: "Discount",
+          date: "Date"
+        },
+        profile: {
+          title: "Campaign profile",
+          description: "Campaign and bundle settings.",
+          meta: "Meta",
+          outlet: "Outlet",
+          partner: "Partner",
+          createdAt: "Created",
+          updatedAt: "Updated",
+          basic: "Basic",
+          schedule: "Schedule",
+          limits: "Limits",
+          actions: "Actions"
+        },
+        itemsTitle: "Campaign items",
+        addItem: "Add item",
+        itemsEmpty: "No items yet",
+        itemTitle: "Campaign item",
+        selectItems: "Select item",
+        itemsRequired: "Add at least one item",
+        itemSaved: "Item saved",
+        itemRemoved: "Item removed",
+        titleRequired: "Title is required",
         table: {
           title: "Title",
+          type: "Type",
           status: "Status",
           start: "Start",
           end: "End",
           items: "Items"
         },
-        itemsTitle: "Campaign items",
-        itemsEmpty: "No items yet",
-        addItem: "Add item",
-        itemSaved: "Item saved",
-        itemRemoved: "Item removed",
-        itemsRequired: "Select at least one item",
-        outletsRequired: "Select at least one outlet",
-        itemRemoveTitle: "Remove item?",
-        itemRemoveDescription: "Item will be removed from campaign.",
-        itemTitle: "Item",
-        selectItem: "Select item",
-        selectItems: "Select items",
-        form: {
-          title: "Title",
-          start: "Start",
-          end: "End",
-          item: "Item",
-          discountType: "Discount type",
-          discountValue: "Discount value",
-          outlets: "Outlets",
-          status: "Status",
-          bundle: "Bundle"
-        },
         itemsTable: {
           item: "Item",
-          basePrice: "Base price",
+          qty: "Qty",
+          required: "Required",
+          discount: "Discount"
+        },
+        form: {
+          title: "Title",
+          description: "Description",
+          type: "Type",
+          priority: "Priority",
+          status: "Status",
+          start: "Start",
+          end: "End",
+          activeFrom: "Active from",
+          activeTo: "Active to",
+          minOrder: "Min order amount",
+          maxUsesTotal: "Max uses total",
+          maxUsesClient: "Max uses per client",
+          stoplistPolicy: "Stop-list policy",
+          delivery: "Delivery methods",
+          bundlePricing: "Bundle pricing",
+          item: "Item",
+          qty: "Qty",
+          discountType: "Discount type",
+          discountValue: "Discount value",
+          required: "Required"
+        },
+        status: {
+          draft: "Draft",
+          active: "Active",
+          paused: "Paused",
+          expired: "Expired",
+          archived: "Archived"
+        },
+        types: {
           discount: "Discount",
           bundle: "Bundle",
-          resultPrice: "Result price"
+          bogo: "1+1"
+        },
+        delivery: {
+          courier: "Courier",
+          pickup: "Pickup"
+        },
+        days: {
+          mon: "Mon",
+          tue: "Tue",
+          wed: "Wed",
+          thu: "Thu",
+          fri: "Fri",
+          sat: "Sat",
+          sun: "Sun"
+        },
+        stoplist: {
+          hide: "Hide from menu",
+          disable: "Disable"
+        },
+        bundle: {
+          fixed: "Fixed price",
+          percent: "Percent",
+          fixedPrice: "Bundle price",
+          percentDiscount: "Discount %"
         },
         discount: {
           percent: "Percent",
           fixed: "Fixed",
           newPrice: "New price"
-        },
-        status: {
-          planned: "Planned",
-          active: "Active",
-          ended: "Ended"
-        },
-        remove: "Remove"
+        }
       }
     },
     promos: {

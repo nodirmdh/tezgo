@@ -1,5 +1,4 @@
-import crypto from "crypto";
-import crypto from "crypto";
+﻿import crypto from "crypto";
 import express from "express";
 import { initDb } from "./db.js";
 import { setupCampaignRoutes } from "./campaignRoutes.js";
@@ -64,6 +63,369 @@ const computeCurrentPrice = (basePrice, campaign) => {
     return Math.max(0, value);
   }
   return basePrice;
+};
+
+const timeToMinutes = (value) => {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+  const [hours, minutes] = value.split(":").map((part) => Number(part));
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return null;
+  }
+  return hours * 60 + minutes;
+};
+
+const isCampaignActiveBySchedule = (campaign, now = new Date()) => {
+  const activeDays = parseJsonSafe(campaign.active_days, []);
+  if (Array.isArray(activeDays) && activeDays.length) {
+    const dayIndex = now.getDay(); // 0 Sunday
+    const dayCodes = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+    const today = dayCodes[dayIndex];
+    if (!activeDays.includes(today)) {
+      return false;
+    }
+  }
+
+  const hours = parseJsonSafe(campaign.active_hours, null);
+  if (hours && typeof hours === "object") {
+    const fromMinutes = timeToMinutes(hours.from);
+    const toMinutes = timeToMinutes(hours.to);
+    if (fromMinutes !== null && toMinutes !== null) {
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      if (fromMinutes <= toMinutes) {
+        if (currentMinutes < fromMinutes || currentMinutes > toMinutes) {
+          return false;
+        }
+      } else {
+        if (currentMinutes < fromMinutes && currentMinutes > toMinutes) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+};
+
+const getActiveCampaigns = (outletId) => {
+  db.prepare(
+    `UPDATE campaigns
+     SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+     WHERE outlet_id = ?
+       AND status != 'archived'
+       AND end_at IS NOT NULL
+       AND end_at < datetime('now')`
+  ).run(outletId);
+
+  const rows = db
+    .prepare(
+      `SELECT campaigns.id,
+              campaigns.type,
+              campaigns.title,
+              campaigns.status,
+              campaigns.priority,
+              campaigns.start_at,
+              campaigns.end_at,
+              campaigns.active_days,
+              campaigns.active_hours,
+              campaigns.min_order_amount,
+              campaigns.max_uses_total,
+              campaigns.max_uses_per_client,
+              campaigns.delivery_methods,
+              campaigns.stoplist_policy,
+              campaigns.bundle_fixed_price,
+              campaigns.bundle_percent_discount,
+              campaign_items.item_id,
+              campaign_items.qty,
+              campaign_items.required,
+              campaign_items.discount_type,
+              campaign_items.discount_value
+       FROM campaigns
+       LEFT JOIN campaign_items ON campaign_items.campaign_id = campaigns.id
+       WHERE campaigns.outlet_id = ?
+         AND campaigns.status = 'active'
+         AND (campaigns.start_at IS NULL OR campaigns.start_at <= datetime('now'))
+         AND (campaigns.end_at IS NULL OR campaigns.end_at >= datetime('now'))
+       ORDER BY campaigns.priority DESC, campaigns.created_at DESC`
+    )
+    .all(outletId);
+
+  const grouped = new Map();
+  rows.forEach((row) => {
+    if (!grouped.has(row.id)) {
+      grouped.set(row.id, {
+        id: row.id,
+        type: row.type,
+        title: row.title,
+        status: row.status,
+        priority: row.priority,
+        start_at: row.start_at,
+        end_at: row.end_at,
+        active_days: row.active_days,
+        active_hours: row.active_hours,
+        min_order_amount: row.min_order_amount,
+        max_uses_total: row.max_uses_total,
+        max_uses_per_client: row.max_uses_per_client,
+        delivery_methods: row.delivery_methods,
+        stoplist_policy: row.stoplist_policy,
+        bundle_fixed_price: row.bundle_fixed_price,
+        bundle_percent_discount: row.bundle_percent_discount,
+        items: []
+      });
+    }
+    if (row.item_id) {
+      grouped.get(row.id).items.push({
+        item_id: row.item_id,
+        qty: row.qty,
+        required: row.required,
+        discount_type: row.discount_type,
+        discount_value: row.discount_value
+      });
+    }
+  });
+
+  const now = new Date();
+  return Array.from(grouped.values()).filter((campaign) =>
+    isCampaignActiveBySchedule(campaign, now)
+  );
+};
+
+const getPromoDiscount = ({ code, outletId, clientUserId, subtotal }) => {
+  if (!code) {
+    return { discount: 0, source: null };
+  }
+  const normalized = String(code).trim();
+  if (!normalized) {
+    return { discount: 0, source: null };
+  }
+
+  if (clientUserId) {
+    const promoIssue = db
+      .prepare(
+        `SELECT id, code, type, value, min_order_amount, status, expires_at
+         FROM promo_issues
+         WHERE code = ? AND client_user_id = ? AND status = 'active'
+           AND (expires_at IS NULL OR expires_at >= datetime('now'))`
+      )
+      .get(normalized, clientUserId);
+    if (promoIssue && (!promoIssue.min_order_amount || subtotal >= promoIssue.min_order_amount)) {
+      const value = Number(promoIssue.value || 0);
+      if (promoIssue.type === "percent") {
+        return {
+          discount: Math.max(0, Math.round((subtotal * value) / 100)),
+          source: { type: "issue", id: promoIssue.id }
+        };
+      }
+      return {
+        discount: Math.max(0, Math.round(Math.min(subtotal, value))),
+        source: { type: "issue", id: promoIssue.id }
+      };
+    }
+  }
+
+  const promo = db
+    .prepare(
+      `SELECT promo_codes.id,
+              promo_codes.code,
+              promo_codes.discount_percent,
+              promo_codes.max_uses,
+              promo_codes.used_count,
+              promo_codes.is_active,
+              promo_codes.starts_at,
+              promo_codes.ends_at,
+              promo_codes.min_order_amount,
+              promo_codes.outlet_id,
+              promo_codes.first_order_only,
+              GROUP_CONCAT(promo_outlets.outlet_id) as outlet_ids
+       FROM promo_codes
+       LEFT JOIN promo_outlets ON promo_outlets.promo_code_id = promo_codes.id
+       WHERE promo_codes.code = ?
+         AND promo_codes.is_active = 1
+         AND (promo_codes.starts_at IS NULL OR promo_codes.starts_at <= datetime('now'))
+         AND (promo_codes.ends_at IS NULL OR promo_codes.ends_at >= datetime('now'))
+       GROUP BY promo_codes.id`
+    )
+    .get(normalized);
+  if (!promo) {
+    return { discount: 0, source: null };
+  }
+  if (promo.min_order_amount && subtotal < promo.min_order_amount) {
+    return { discount: 0, source: null };
+  }
+  if (promo.max_uses && promo.used_count >= promo.max_uses) {
+    return { discount: 0, source: null };
+  }
+  const outletIds = promo.outlet_ids
+    ? String(promo.outlet_ids)
+        .split(",")
+        .map((value) => Number(value))
+        .filter((value) => !Number.isNaN(value))
+    : promo.outlet_id
+      ? [promo.outlet_id]
+      : [];
+  if (outletIds.length && outletId && !outletIds.includes(outletId)) {
+    return { discount: 0, source: null };
+  }
+  if (promo.first_order_only && clientUserId) {
+    const count = db
+      .prepare("SELECT COUNT(*) as count FROM orders WHERE client_user_id = ?")
+      .get(clientUserId).count;
+    if (count > 1) {
+      return { discount: 0, source: null };
+    }
+  }
+  const discountPercent = Number(promo.discount_percent || 0);
+  return {
+    discount: Math.max(0, Math.round((subtotal * discountPercent) / 100)),
+    source: { type: "global", id: promo.id }
+  };
+};
+
+const computeOrderPricing = ({ order, items }) => {
+  const subtotalFood = items.reduce((sum, item) => sum + Number(item.total_price || 0), 0);
+  const campaigns = getActiveCampaigns(order.outlet_id);
+  const countCampaignUsageStmt = db.prepare(
+    "SELECT COUNT(*) as count FROM campaign_usage WHERE campaign_id = ?"
+  );
+  const countCampaignUsageByClientStmt = db.prepare(
+    "SELECT COUNT(*) as count FROM campaign_usage WHERE campaign_id = ? AND client_user_id = ?"
+  );
+  const campaignDiscounts = new Map();
+  let campaignDiscount = 0;
+
+  const itemsById = new Map();
+  items.forEach((item) => {
+    if (item.item_id) {
+      itemsById.set(item.item_id, item);
+    }
+  });
+
+  const bestItemDiscount = new Map();
+
+  campaigns.forEach((campaign) => {
+    if (campaign.min_order_amount && subtotalFood < Number(campaign.min_order_amount || 0)) {
+      return;
+    }
+    if (campaign.max_uses_total && Number(campaign.max_uses_total || 0) > 0) {
+      const totalUsed = countCampaignUsageStmt.get(campaign.id).count;
+      if (totalUsed >= Number(campaign.max_uses_total || 0)) {
+        return;
+      }
+    }
+    if (
+      campaign.max_uses_per_client &&
+      Number(campaign.max_uses_per_client || 0) > 0 &&
+      order.client_user_id
+    ) {
+      const usedByClient = countCampaignUsageByClientStmt.get(
+        campaign.id,
+        order.client_user_id
+      ).count;
+      if (usedByClient >= Number(campaign.max_uses_per_client || 0)) {
+        return;
+      }
+    }
+    if (campaign.type === "bundle") {
+      const requiredItems = campaign.items.filter((entry) => Number(entry.required) === 1);
+      if (!requiredItems.length) {
+        return;
+      }
+      const hasAll = requiredItems.every((entry) => {
+        const orderItem = itemsById.get(entry.item_id);
+        return orderItem && Number(orderItem.quantity || 0) >= Number(entry.qty || 1);
+      });
+      if (!hasAll) {
+        return;
+      }
+      const bundleSum = requiredItems.reduce((sum, entry) => {
+        const orderItem = itemsById.get(entry.item_id);
+        const qty = Number(entry.qty || 1);
+        return sum + Number(orderItem.unit_price || 0) * qty;
+      }, 0);
+      let discount = 0;
+      if (campaign.bundle_fixed_price) {
+        const fixed = Number(campaign.bundle_fixed_price || 0);
+        discount = Math.max(0, bundleSum - fixed);
+      } else if (campaign.bundle_percent_discount) {
+        const percent = Number(campaign.bundle_percent_discount || 0);
+        discount = Math.max(0, Math.round((bundleSum * percent) / 100));
+      }
+      if (discount > 0) {
+        campaignDiscounts.set(campaign.id, (campaignDiscounts.get(campaign.id) || 0) + discount);
+        campaignDiscount += discount;
+      }
+      return;
+    }
+
+    if (campaign.type !== "discount") {
+      return;
+    }
+
+    campaign.items.forEach((entry) => {
+      const orderItem = itemsById.get(entry.item_id);
+      if (!orderItem) {
+        return;
+      }
+      const requiredQty = Number(entry.qty || 1);
+      const orderQty = Number(orderItem.quantity || 0);
+      if (orderQty < requiredQty) {
+        return;
+      }
+      const unitPrice = Number(orderItem.unit_price || 0);
+      const discountedUnit = computeCurrentPrice(unitPrice, entry);
+      const discount = Math.max(0, Math.round((unitPrice - discountedUnit) * orderQty));
+      if (!discount) {
+        return;
+      }
+      const existing = bestItemDiscount.get(orderItem.id);
+      if (!existing || discount > existing.amount) {
+        bestItemDiscount.set(orderItem.id, {
+          amount: discount,
+          campaignId: campaign.id
+        });
+      }
+    });
+  });
+
+  bestItemDiscount.forEach((entry) => {
+    campaignDiscount += entry.amount;
+    campaignDiscounts.set(
+      entry.campaignId,
+      (campaignDiscounts.get(entry.campaignId) || 0) + entry.amount
+    );
+  });
+
+  const promoResult = getPromoDiscount({
+    code: order.promo_code,
+    outletId: order.outlet_id,
+    clientUserId: order.client_user_id,
+    subtotal: subtotalFood
+  });
+
+  const promoDiscount = Math.max(0, Math.min(subtotalFood, promoResult.discount || 0));
+  const totalAmount = Math.max(
+    0,
+    subtotalFood +
+      Number(order.courier_fee || 0) +
+      Number(order.service_fee || 0) -
+      promoDiscount -
+      campaignDiscount
+  );
+
+  const appliedCampaigns = Array.from(campaignDiscounts.entries()).map(([id, amount]) => ({
+    campaign_id: id,
+    discount_amount: amount
+  }));
+
+  return {
+    subtotal_food: subtotalFood,
+    promo_discount_amount: promoDiscount,
+    campaign_discount_amount: campaignDiscount,
+    total_amount: totalAmount,
+    applied_campaigns: appliedCampaigns,
+    promo_source: promoResult.source
+  };
 };
 
 const calcSlaDueAt = (prepEtaMinutes) =>
@@ -326,7 +688,7 @@ const logOrderEvent = ({ order_id, type, payload, actor_id }) => {
   ).run(order_id, type, payload ? JSON.stringify(payload) : null, actor_id);
 };
 
-const parseJsonSafe = (value, fallback = {}) => {
+function parseJsonSafe(value, fallback = {}) {
   if (!value) {
     return fallback;
   }
@@ -335,6 +697,151 @@ const parseJsonSafe = (value, fallback = {}) => {
   } catch {
     return fallback;
   }
+}
+
+const normalizeJsonArrayInput = (value) => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return JSON.stringify([]);
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return JSON.stringify(parsed);
+      }
+    } catch {
+      const parts = trimmed
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      return JSON.stringify(parts);
+    }
+  }
+  return null;
+};
+
+const fetchItemProfile = (db, outletId, itemId) => {
+  const row = db
+    .prepare(
+      `SELECT outlet_items.outlet_id,
+              outlet_items.item_id,
+              outlet_items.base_price,
+              outlet_items.is_available,
+              outlet_items.stock,
+              outlet_items.stock_qty,
+              outlet_items.is_visible,
+              outlet_items.unavailable_reason,
+              outlet_items.unavailable_until,
+              outlet_items.stoplist_active,
+              outlet_items.stoplist_until,
+              outlet_items.stoplist_reason,
+              outlet_items.delivery_methods,
+              outlet_items.updated_at as outlet_updated_at,
+              items.title,
+              items.short_title,
+              items.category,
+              items.categories,
+              items.sku,
+              items.description,
+              items.photo_url,
+              items.image_url,
+              items.image_enabled,
+              items.weight_grams,
+              items.priority,
+              items.is_adult,
+              items.kcal,
+              items.protein,
+              items.fat,
+              items.carbs,
+              items.core_id,
+              items.origin_id,
+              items.created_at,
+              items.updated_at
+       FROM outlet_items
+       JOIN items ON items.id = outlet_items.item_id
+       WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
+    )
+    .get(outletId, itemId);
+
+  if (!row) {
+    return null;
+  }
+
+  const campaign = db
+    .prepare(
+      `SELECT outlet_campaign_items.item_id,
+              outlet_campaign_items.discount_type,
+              outlet_campaign_items.discount_value,
+              outlet_campaigns.id as campaign_id,
+              outlet_campaigns.title
+       FROM outlet_campaign_items
+       JOIN outlet_campaigns ON outlet_campaigns.id = outlet_campaign_items.campaign_id
+       WHERE outlet_campaigns.outlet_id = @outlet_id
+         AND outlet_campaign_items.item_id = @item_id
+         AND outlet_campaigns.status = 'active'
+         AND (outlet_campaigns.start_at IS NULL OR outlet_campaigns.start_at <= datetime('now'))
+         AND (outlet_campaigns.end_at IS NULL OR outlet_campaigns.end_at >= datetime('now'))
+       LIMIT 1`
+    )
+    .get({ outlet_id: outletId, item_id: itemId });
+
+  const basePrice = Number(row.base_price || 0);
+  const stoplistActive = Number(row.stoplist_active) === 1;
+  return {
+    outletId,
+    itemId,
+    title: row.title,
+    shortTitle: row.short_title,
+    category: row.category,
+    categories: parseJsonSafe(row.categories, []),
+    sku: row.sku,
+    description: row.description,
+    photoUrl: row.photo_url,
+    imageUrl: row.image_url || row.photo_url,
+    imageEnabled: Number(row.image_enabled ?? 1) === 1,
+    weightGrams: row.weight_grams,
+    priority: row.priority ?? 0,
+    isAdult: Number(row.is_adult ?? 0) === 1,
+    kcal: row.kcal,
+    protein: row.protein,
+    fat: row.fat,
+    carbs: row.carbs,
+    coreId: row.core_id,
+    originId: row.origin_id,
+    basePrice,
+    currentPrice: computeCurrentPrice(basePrice, campaign),
+    isAvailable: row.is_available,
+    stockQty: row.stock_qty ?? row.stock,
+    stock: row.stock_qty ?? row.stock,
+    isVisible: Number(row.is_visible ?? 1) === 1,
+    stoplistActive,
+    stoplistReason: row.stoplist_reason,
+    stoplistUntil: row.stoplist_until,
+    unavailableReason: stoplistActive ? row.stoplist_reason : row.unavailable_reason,
+    unavailableUntil: stoplistActive ? row.stoplist_until : row.unavailable_until,
+    deliveryMethods: parseJsonSafe(row.delivery_methods, []),
+    activeCampaign: campaign
+      ? {
+          campaignId: campaign.campaign_id,
+          title: campaign.title,
+          discount_type: campaign.discount_type,
+          discount_value: campaign.discount_value
+        }
+      : null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    outletUpdatedAt: row.outlet_updated_at
+  };
 };
 
 const applyCancellationEffects = ({
@@ -349,6 +856,19 @@ const applyCancellationEffects = ({
     .get(order.outlet_id);
   const partnerId = outlet?.partner_id ?? null;
 
+  const resolveEntity = ({ user_id, partner_id, category }) => {
+    if (partner_id) {
+      return { entity_type: "partner", entity_id: partner_id };
+    }
+    if (user_id) {
+      if (category === "courier") {
+        return { entity_type: "courier", entity_id: user_id };
+      }
+      return { entity_type: "client", entity_id: user_id };
+    }
+    return { entity_type: null, entity_id: null };
+  };
+
   const createLedgerEntry = ({
     title,
     amount,
@@ -357,7 +877,8 @@ const applyCancellationEffects = ({
     user_id,
     partner_id,
     order_id,
-    direction = "credit"
+    direction = "credit",
+    meta
   }) => {
     if (!amount || Number.isNaN(Number(amount))) {
       return;
@@ -367,6 +888,7 @@ const applyCancellationEffects = ({
       return;
     }
     const balanceDelta = direction === "debit" ? -normalized : normalized;
+    const entity = resolveEntity({ user_id, partner_id, category });
     createLedgerStmt.run({
       title,
       amount: normalized,
@@ -376,7 +898,29 @@ const applyCancellationEffects = ({
       partner_id: partner_id ?? null,
       order_id: order_id ?? null,
       balance_delta: balanceDelta,
-      category
+      category,
+      entity_type: entity.entity_type,
+      entity_id: entity.entity_id,
+      currency: "UZS",
+      meta_json: meta ? JSON.stringify(meta) : null,
+      created_by_role: actorRole,
+      created_by_tg_id: actorTg || null
+    });
+  };
+
+  const createOrderAdjustment = ({ kind, amount, reason_code, comment }) => {
+    if (!amount || Number.isNaN(Number(amount))) {
+      return;
+    }
+    insertOrderAdjustmentStmt.run({
+      order_id: order.id,
+      kind,
+      amount: Math.abs(Number(amount)),
+      reason_code: reason_code || null,
+      comment: comment || null,
+      created_by_role: actorRole,
+      created_by_tg_id: actorTg || null,
+      created_at: nowIso()
     });
   };
 
@@ -388,7 +932,14 @@ const applyCancellationEffects = ({
       category: "refund",
       user_id: order.client_user_id,
       order_id: order.id,
-      direction: "credit"
+      direction: "credit",
+      meta: { reason: "cancel", order_id: order.id }
+    });
+    createOrderAdjustment({
+      kind: "refund",
+      amount: order.total_amount ?? 0,
+      reason_code: "cancel_refund",
+      comment: "auto"
     });
   }
 
@@ -400,7 +951,14 @@ const applyCancellationEffects = ({
       category: "partner",
       partner_id: partnerId,
       order_id: order.id,
-      direction: "credit"
+      direction: "credit",
+      meta: { reason: "cancel_compensation", order_id: order.id }
+    });
+    createOrderAdjustment({
+      kind: "compensation",
+      amount: order.subtotal_food ?? 0,
+      reason_code: "cancel_compensation",
+      comment: "auto"
     });
   }
 
@@ -412,7 +970,8 @@ const applyCancellationEffects = ({
       category: "partner",
       partner_id: partnerId,
       order_id: order.id,
-      direction: "debit"
+      direction: "debit",
+      meta: { reason: "cancel_penalty", order_id: order.id }
     });
   }
 
@@ -424,7 +983,8 @@ const applyCancellationEffects = ({
       category: "courier",
       user_id: order.courier_user_id,
       order_id: order.id,
-      direction: "debit"
+      direction: "debit",
+      meta: { reason: "cancel_penalty", order_id: order.id }
     });
   }
 
@@ -697,11 +1257,17 @@ const getOrderPricingStmt = db.prepare(
           courier_fee,
           service_fee,
           discount_amount,
+          promo_discount_amount,
+          campaign_discount_amount,
+          promo_code,
+          outlet_id,
+          client_user_id,
           total_amount
    FROM orders WHERE id = ?`
 );
 const getOrderItemsStmt = db.prepare(
   `SELECT id,
+          item_id,
           title,
           description,
           photo_url,
@@ -715,12 +1281,13 @@ const getOrderItemsStmt = db.prepare(
    ORDER BY id ASC`
 );
 const insertOrderItemStmt = db.prepare(
-  `INSERT INTO order_items (order_id, title, description, photo_url, sku, weight_grams, unit_price, quantity, total_price)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  `INSERT INTO order_items (order_id, item_id, title, description, photo_url, sku, weight_grams, unit_price, quantity, total_price)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 );
 const updateOrderItemStmt = db.prepare(
   `UPDATE order_items
-   SET title = ?,
+   SET item_id = ?,
+       title = ?,
        description = ?,
        photo_url = ?,
        sku = ?,
@@ -733,9 +1300,20 @@ const updateOrderItemStmt = db.prepare(
 const deleteOrderItemStmt = db.prepare(
   "DELETE FROM order_items WHERE id = ? AND order_id = ?"
 );
+const deleteCampaignUsageByOrderStmt = db.prepare(
+  "DELETE FROM campaign_usage WHERE order_id = ?"
+);
+const insertCampaignUsageStmt = db.prepare(
+  `INSERT INTO campaign_usage (campaign_id, order_id, client_user_id, discount_amount, applied_at)
+   VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`
+);
 const updateOrderTotalsStmt = db.prepare(
   `UPDATE orders
    SET subtotal_food = @subtotal_food,
+       discount_amount = @discount_amount,
+       promo_discount_amount = @promo_discount_amount,
+       campaign_discount_amount = @campaign_discount_amount,
+       campaign_ids = @campaign_ids,
        total_amount = @total_amount
    WHERE id = @id`
 );
@@ -893,7 +1471,7 @@ const attachPromoOutlets = (promo) => {
 
 const listLedgerStmt = (filters) => {
   let sql =
-    "SELECT id, title, amount, status, type, created_at, user_id, partner_id, order_id, balance_delta, category FROM finance_ledger";
+    "SELECT id, title, amount, status, type, created_at, user_id, partner_id, order_id, balance_delta, category, entity_type, entity_id, currency, meta_json, created_by_role, created_by_tg_id FROM finance_ledger";
   const { conditions, params } = buildFilters(filters);
   if (conditions.length) {
     sql += ` WHERE ${conditions.join(" AND ")}`;
@@ -902,8 +1480,40 @@ const listLedgerStmt = (filters) => {
   return db.prepare(sql).all(params);
 };
 const createLedgerStmt = db.prepare(
-  `INSERT INTO finance_ledger (title, amount, status, type, user_id, partner_id, order_id, balance_delta, category)
-   VALUES (@title, @amount, @status, @type, @user_id, @partner_id, @order_id, @balance_delta, @category)`
+  `INSERT INTO finance_ledger (
+      title,
+      amount,
+      status,
+      type,
+      user_id,
+      partner_id,
+      order_id,
+      balance_delta,
+      category,
+      entity_type,
+      entity_id,
+      currency,
+      meta_json,
+      created_by_role,
+      created_by_tg_id
+   )
+   VALUES (
+      @title,
+      @amount,
+      @status,
+      @type,
+      @user_id,
+      @partner_id,
+      @order_id,
+      @balance_delta,
+      @category,
+      @entity_type,
+      @entity_id,
+      @currency,
+      @meta_json,
+      @created_by_role,
+      @created_by_tg_id
+   )`
 );
 const updateLedgerStmt = db.prepare(
   `UPDATE finance_ledger
@@ -915,10 +1525,20 @@ const updateLedgerStmt = db.prepare(
        partner_id = COALESCE(@partner_id, partner_id),
        order_id = COALESCE(@order_id, order_id),
        balance_delta = COALESCE(@balance_delta, balance_delta),
-       category = COALESCE(@category, category)
+       category = COALESCE(@category, category),
+       entity_type = COALESCE(@entity_type, entity_type),
+       entity_id = COALESCE(@entity_id, entity_id),
+       currency = COALESCE(@currency, currency),
+       meta_json = COALESCE(@meta_json, meta_json),
+       created_by_role = COALESCE(@created_by_role, created_by_role),
+       created_by_tg_id = COALESCE(@created_by_tg_id, created_by_tg_id)
    WHERE id = @id`
 );
 const deleteLedgerStmt = db.prepare("DELETE FROM finance_ledger WHERE id = ?");
+const insertOrderAdjustmentStmt = db.prepare(
+  `INSERT INTO order_adjustments (order_id, kind, amount, reason_code, comment, created_by_role, created_by_tg_id, created_at)
+   VALUES (@order_id, @kind, @amount, @reason_code, @comment, @created_by_role, @created_by_tg_id, @created_at)`
+);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
@@ -1158,16 +1778,16 @@ app.get("/api/users/:id/finance", (req, res) => {
   let summary;
   if (user.role === "courier") {
     summary = [
-      { label: "Баланс", value: balance },
-      { label: "Выплаты", value: sumByType("courier_payout") },
-      { label: "Штрафы", value: sumByType("penalty") },
-      { label: "Бонусы", value: sumByType("bonus") }
+      { label: "Р‘Р°Р»Р°РЅСЃ", value: balance },
+      { label: "Р’С‹РїР»Р°С‚С‹", value: sumByType("courier_payout") },
+      { label: "РЁС‚СЂР°С„С‹", value: sumByType("penalty") },
+      { label: "Р‘РѕРЅСѓСЃС‹", value: sumByType("bonus") }
     ];
   } else {
     summary = [
-      { label: "Платежи", value: sumByType("payment") },
-      { label: "Возвраты", value: sumByType("refund") },
-      { label: "Промокоды", value: sumByType("promo") }
+      { label: "РџР»Р°С‚РµР¶Рё", value: sumByType("payment") },
+      { label: "Р’РѕР·РІСЂР°С‚С‹", value: sumByType("refund") },
+      { label: "РџСЂРѕРјРѕРєРѕРґС‹", value: sumByType("promo") }
     ];
   }
 
@@ -2704,6 +3324,21 @@ app.get("/api/outlets/:outletId/items", (req, res) => {
   const offset = (page - 1) * limit;
   const sort = String(req.query.sort || "title:asc");
 
+  db.prepare(
+    `UPDATE outlet_items
+     SET stoplist_active = 0,
+         stoplist_until = NULL,
+         stoplist_reason = NULL,
+         is_available = 1,
+         unavailable_reason = NULL,
+         unavailable_until = NULL,
+         updated_at = @updated_at
+     WHERE outlet_id = @outlet_id
+       AND stoplist_active = 1
+       AND stoplist_until IS NOT NULL
+       AND datetime(stoplist_until) <= datetime('now')`
+  ).run({ outlet_id: outletId, updated_at: nowIso() });
+
   const { conditions, params } = buildFilters([
     {
       value: search ? `%${search}%` : null,
@@ -2730,16 +3365,34 @@ app.get("/api/outlets/:outletId/items", (req, res) => {
     .prepare(
       `SELECT items.id as item_id,
               items.title,
+              items.short_title,
               items.category,
               items.sku,
               items.description,
               items.photo_url,
+              items.image_url,
+              items.image_enabled,
+              items.priority,
+              items.categories,
+              items.is_adult,
+              items.kcal,
+              items.protein,
+              items.fat,
+              items.carbs,
+              items.core_id,
+              items.origin_id,
               items.weight_grams,
               outlet_items.base_price,
               outlet_items.is_available,
               outlet_items.stock,
+              outlet_items.stock_qty,
+              outlet_items.is_visible,
               outlet_items.unavailable_reason,
               outlet_items.unavailable_until,
+              outlet_items.stoplist_active,
+              outlet_items.stoplist_until,
+              outlet_items.stoplist_reason,
+              outlet_items.delivery_methods,
               outlet_items.updated_at
        FROM outlet_items
        JOIN items ON items.id = outlet_items.item_id
@@ -2773,20 +3426,42 @@ app.get("/api/outlets/:outletId/items", (req, res) => {
   const mapped = rows.map((row) => {
     const campaign = campaignByItem[row.item_id];
     const basePrice = Number(row.base_price || 0);
+    const stoplistActive = Number(row.stoplist_active) === 1;
+    const unavailableReason = stoplistActive ? row.stoplist_reason : row.unavailable_reason;
+    const unavailableUntil = stoplistActive ? row.stoplist_until : row.unavailable_until;
+    const stockQty = row.stock_qty ?? row.stock;
     return {
       itemId: row.item_id,
       title: row.title,
+      shortTitle: row.short_title,
       category: row.category,
       sku: row.sku,
       description: row.description,
       photoUrl: row.photo_url,
+      imageUrl: row.image_url || row.photo_url,
+      imageEnabled: Number(row.image_enabled ?? 1) === 1,
       weightGrams: row.weight_grams,
+      priority: row.priority ?? 0,
+      categories: parseJsonSafe(row.categories, []),
+      isAdult: Number(row.is_adult ?? 0) === 1,
+      isVisible: Number(row.is_visible ?? 1) === 1,
+      stoplistActive,
+      stoplistUntil: row.stoplist_until,
+      stoplistReason: row.stoplist_reason,
+      deliveryMethods: parseJsonSafe(row.delivery_methods, []),
+      kcal: row.kcal,
+      protein: row.protein,
+      fat: row.fat,
+      carbs: row.carbs,
+      coreId: row.core_id,
+      originId: row.origin_id,
       basePrice,
       currentPrice: computeCurrentPrice(basePrice, campaign),
       isAvailable: row.is_available,
-      stock: row.stock,
-      unavailableReason: row.unavailable_reason,
-      unavailableUntil: row.unavailable_until,
+      stock: stockQty,
+      stockQty,
+      unavailableReason,
+      unavailableUntil,
       updatedAt: row.updated_at,
       activeCampaign: campaign
         ? {
@@ -2826,14 +3501,32 @@ app.post("/api/outlets/:outletId/items", requireRole(["admin"]), (req, res) => {
   const outletId = Number(req.params.outletId);
   const {
     title,
+    shortTitle,
     sku,
     category,
+    categories,
     description,
     photoUrl,
+    imageUrl,
+    imageEnabled,
     weightGrams,
+    priority,
+    isAdult,
+    kcal,
+    protein,
+    fat,
+    carbs,
+    coreId,
+    originId,
     basePrice,
     stock,
+    stockQty,
     isAvailable,
+    isVisible,
+    deliveryMethods,
+    stoplistActive,
+    stoplistReason,
+    stoplistUntil,
     unavailableReason,
     unavailableUntil
   } = req.body;
@@ -2842,62 +3535,154 @@ app.post("/api/outlets/:outletId/items", requireRole(["admin"]), (req, res) => {
     return res.status(400).json({ error: "Title and base price are required" });
   }
 
+  const categoriesValue = normalizeJsonArrayInput(categories);
+  const deliveryMethodsValue = normalizeJsonArrayInput(deliveryMethods);
+  const imageUrlValue = imageUrl ?? photoUrl ?? null;
+  const photoUrlValue = photoUrl ?? imageUrl ?? null;
+
   const itemId = db.prepare(
     `INSERT INTO items
-      (title, sku, category, description, photo_url, weight_grams, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+      (title, short_title, sku, category, categories, description, photo_url, image_url, image_enabled,
+       weight_grams, priority, is_adult, kcal, protein, fat, carbs, core_id, origin_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     title,
+    shortTitle ?? null,
     sku ?? null,
     category ?? null,
+    categoriesValue,
     description ?? null,
-    photoUrl ?? null,
+    photoUrlValue,
+    imageUrlValue,
+    imageEnabled === undefined ? 1 : imageEnabled ? 1 : 0,
     weightGrams ? Number(weightGrams) : 0,
+    priority === undefined || priority === "" ? 0 : Number(priority),
+    isAdult ? 1 : 0,
+    kcal === undefined || kcal === "" ? null : Number(kcal),
+    protein === undefined || protein === "" ? null : Number(protein),
+    fat === undefined || fat === "" ? null : Number(fat),
+    carbs === undefined || carbs === "" ? null : Number(carbs),
+    coreId ?? null,
+    originId ?? null,
     nowIso()
   ).lastInsertRowid;
 
   const availableValue = isAvailable === undefined ? 1 : isAvailable ? 1 : 0;
-  const stockValue = stock === undefined || stock === "" ? null : Number(stock);
+  const stoplistValue = stoplistActive ? 1 : 0;
+  const stockValue =
+    stockQty !== undefined
+      ? stockQty === "" || stockQty === null
+        ? null
+        : Number(stockQty)
+      : stock === undefined || stock === ""
+        ? null
+        : Number(stock);
 
-  if (availableValue === 0 && !unavailableReason) {
+  if (stoplistValue === 1 && (!stoplistReason || String(stoplistReason).trim() === "")) {
+    return res.status(400).json({ error: "Stoplist reason is required" });
+  }
+
+  if (availableValue === 0 && !stoplistValue && !unavailableReason) {
     return res.status(400).json({ error: "Unavailable reason is required" });
   }
 
   db.prepare(
     `INSERT INTO outlet_items
-      (outlet_id, item_id, base_price, is_available, stock, unavailable_reason, unavailable_until, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      (outlet_id, item_id, base_price, is_available, stock, stock_qty, is_visible,
+       stoplist_active, stoplist_reason, stoplist_until, delivery_methods,
+       unavailable_reason, unavailable_until, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     outletId,
     itemId,
     Number(basePrice),
-    availableValue,
+    stoplistValue ? 0 : availableValue,
     stockValue,
-    unavailableReason ?? null,
-    unavailableUntil ?? null,
+    stockValue,
+    isVisible === undefined ? 1 : isVisible ? 1 : 0,
+    stoplistValue,
+    stoplistValue ? stoplistReason ?? null : null,
+    stoplistValue ? stoplistUntil ?? null : null,
+    deliveryMethodsValue,
+    stoplistValue ? stoplistReason ?? null : unavailableReason ?? null,
+    stoplistValue ? stoplistUntil ?? null : unavailableUntil ?? null,
     nowIso()
   );
 
   const created = db.prepare(
     `SELECT items.id as item_id,
             items.title,
+            items.short_title,
             items.category,
             items.sku,
             items.description,
             items.photo_url,
+            items.image_url,
+            items.image_enabled,
+            items.priority,
+            items.categories,
+            items.is_adult,
+            items.kcal,
+            items.protein,
+            items.fat,
+            items.carbs,
+            items.core_id,
+            items.origin_id,
             items.weight_grams,
             outlet_items.base_price,
             outlet_items.is_available,
             outlet_items.stock,
+            outlet_items.stock_qty,
+            outlet_items.is_visible,
             outlet_items.unavailable_reason,
             outlet_items.unavailable_until,
+            outlet_items.stoplist_active,
+            outlet_items.stoplist_until,
+            outlet_items.stoplist_reason,
+            outlet_items.delivery_methods,
             outlet_items.updated_at
      FROM outlet_items
      JOIN items ON items.id = outlet_items.item_id
      WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
   ).get(outletId, itemId);
 
+  logAudit({
+    entity_type: "item",
+    entity_id: itemId,
+    action: "create",
+    actor_id: getActorId(req),
+    before: null,
+    after: { outlet_id: outletId, ...created }
+  });
+
   res.status(201).json(created);
+});
+
+app.get("/api/outlets/:outletId/items/:itemId", (req, res) => {
+  const outletId = Number(req.params.outletId);
+  const itemId = Number(req.params.itemId);
+
+  db.prepare(
+    `UPDATE outlet_items
+     SET stoplist_active = 0,
+         stoplist_until = NULL,
+         stoplist_reason = NULL,
+         is_available = 1,
+         unavailable_reason = NULL,
+         unavailable_until = NULL,
+         updated_at = @updated_at
+     WHERE outlet_id = @outlet_id
+       AND item_id = @item_id
+       AND stoplist_active = 1
+       AND stoplist_until IS NOT NULL
+       AND datetime(stoplist_until) <= datetime('now')`
+  ).run({ outlet_id: outletId, item_id: itemId, updated_at: nowIso() });
+
+  const profile = fetchItemProfile(db, outletId, itemId);
+  if (!profile) {
+    return res.status(404).json({ error: "Outlet item not found" });
+  }
+  res.json(profile);
 });
 
 app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
@@ -2910,14 +3695,32 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
       `SELECT outlet_items.base_price,
               outlet_items.is_available,
               outlet_items.stock,
+              outlet_items.stock_qty,
+              outlet_items.is_visible,
               outlet_items.unavailable_reason,
               outlet_items.unavailable_until,
+              outlet_items.stoplist_active,
+              outlet_items.stoplist_until,
+              outlet_items.stoplist_reason,
+              outlet_items.delivery_methods,
               items.title,
+              items.short_title,
               items.category,
+              items.categories,
               items.sku,
               items.description,
               items.photo_url,
+              items.image_url,
+              items.image_enabled,
               items.weight_grams
+              , items.priority
+              , items.is_adult
+              , items.kcal
+              , items.protein
+              , items.fat
+              , items.carbs
+              , items.core_id
+              , items.origin_id
        FROM outlet_items
        JOIN items ON items.id = outlet_items.item_id
        WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
@@ -2933,11 +3736,23 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
 
   const detailsFields = [
     "title",
+    "shortTitle",
     "category",
+    "categories",
     "sku",
     "description",
     "photoUrl",
-    "weightGrams"
+    "imageUrl",
+    "imageEnabled",
+    "weightGrams",
+    "priority",
+    "isAdult",
+    "kcal",
+    "protein",
+    "fat",
+    "carbs",
+    "coreId",
+    "originId"
   ];
   if (detailsFields.some((field) => req.body[field] !== undefined) && !canEditDetails) {
     return res.status(403).json({ error: "Forbidden" });
@@ -2946,23 +3761,55 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
   if (req.body.basePrice !== undefined && !canEditPrice) {
     return res.status(403).json({ error: "Forbidden" });
   }
-  if ((req.body.isAvailable !== undefined || req.body.stock !== undefined) && !canEditAvailability) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-  if ((req.body.unavailableReason !== undefined || req.body.unavailableUntil !== undefined) && !canEditAvailability) {
+  const availabilityFields = [
+    "isAvailable",
+    "stock",
+    "stockQty",
+    "unavailableReason",
+    "unavailableUntil",
+    "isVisible",
+    "deliveryMethods",
+    "stoplistActive",
+    "stoplistReason",
+    "stoplistUntil"
+  ];
+  if (availabilityFields.some((field) => req.body[field] !== undefined) && !canEditAvailability) {
     return res.status(403).json({ error: "Forbidden" });
   }
 
   const newBasePrice =
     req.body.basePrice !== undefined ? Number(req.body.basePrice) : null;
   const isAvailableProvided = req.body.isAvailable !== undefined;
-  const isAvailable =
+  let isAvailable =
     isAvailableProvided ? (req.body.isAvailable ? 1 : 0) : null;
-  const stock =
-    req.body.stock !== undefined ? Number(req.body.stock) : null;
+  const stockProvided = req.body.stock !== undefined || req.body.stockQty !== undefined;
+  const stockValue =
+    req.body.stockQty !== undefined
+      ? req.body.stockQty === "" || req.body.stockQty === null
+        ? null
+        : Number(req.body.stockQty)
+      : req.body.stock !== undefined
+        ? req.body.stock === "" || req.body.stock === null
+          ? null
+          : Number(req.body.stock)
+        : null;
+  const isVisibleProvided = req.body.isVisible !== undefined;
+  const isVisible = isVisibleProvided ? (req.body.isVisible ? 1 : 0) : null;
+  const stoplistProvided = req.body.stoplistActive !== undefined;
+  const stoplistActive = stoplistProvided ? (req.body.stoplistActive ? 1 : 0) : null;
+  const stoplistReasonProvided = req.body.stoplistReason !== undefined;
+  const stoplistUntilProvided = req.body.stoplistUntil !== undefined;
+  const deliveryMethodsProvided = req.body.deliveryMethods !== undefined;
+  const deliveryMethodsValue = normalizeJsonArrayInput(req.body.deliveryMethods);
   const reasonProvided = req.body.unavailableReason !== undefined;
   const untilProvided = req.body.unavailableUntil !== undefined;
 
+  let stoplistReason = stoplistReasonProvided
+    ? req.body.stoplistReason
+    : outletItem.stoplist_reason;
+  let stoplistUntil = stoplistUntilProvided
+    ? req.body.stoplistUntil
+    : outletItem.stoplist_until;
   let unavailableReason = reasonProvided
     ? req.body.unavailableReason
     : outletItem.unavailable_reason;
@@ -2970,36 +3817,94 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
     ? req.body.unavailableUntil
     : outletItem.unavailable_until;
 
+  if (stoplistProvided && stoplistActive === 1) {
+    if (!stoplistReason || String(stoplistReason).trim() === "") {
+      return res.status(400).json({ error: "Stoplist reason is required" });
+    }
+    isAvailable = 0;
+    unavailableReason = stoplistReason;
+    unavailableUntil = stoplistUntil;
+  }
+
+  if (stoplistProvided && stoplistActive === 0) {
+    stoplistReason = null;
+    stoplistUntil = null;
+  }
+
   if (isAvailableProvided && isAvailable === 1) {
     unavailableReason = null;
     unavailableUntil = null;
   }
 
-  if (isAvailableProvided && isAvailable === 0) {
+  if (isAvailableProvided && isAvailable === 0 && (!stoplistProvided || stoplistActive === 0)) {
     if (!unavailableReason || String(unavailableReason).trim() === "") {
       return res.status(400).json({ error: "Unavailable reason is required" });
     }
   }
 
   if (canEditDetails && detailsFields.some((field) => req.body[field] !== undefined)) {
+    const categoriesValue = normalizeJsonArrayInput(req.body.categories);
+    const imageUrlValue =
+      req.body.imageUrl !== undefined
+        ? req.body.imageUrl
+        : req.body.photoUrl !== undefined
+          ? req.body.photoUrl
+          : null;
+    const photoUrlValue =
+      req.body.photoUrl !== undefined
+        ? req.body.photoUrl
+        : req.body.imageUrl !== undefined
+          ? req.body.imageUrl
+          : null;
     db.prepare(
       `UPDATE items
        SET title = COALESCE(@title, title),
+           short_title = COALESCE(@short_title, short_title),
            category = COALESCE(@category, category),
+           categories = COALESCE(@categories, categories),
            sku = COALESCE(@sku, sku),
            description = COALESCE(@description, description),
            photo_url = COALESCE(@photo_url, photo_url),
+           image_url = COALESCE(@image_url, image_url),
+           image_enabled = COALESCE(@image_enabled, image_enabled),
            weight_grams = COALESCE(@weight_grams, weight_grams),
+           priority = COALESCE(@priority, priority),
+           is_adult = COALESCE(@is_adult, is_adult),
+           kcal = COALESCE(@kcal, kcal),
+           protein = COALESCE(@protein, protein),
+           fat = COALESCE(@fat, fat),
+           carbs = COALESCE(@carbs, carbs),
+           core_id = COALESCE(@core_id, core_id),
+           origin_id = COALESCE(@origin_id, origin_id),
            updated_at = @updated_at
        WHERE id = @item_id`
     ).run({
       title: req.body.title,
+      short_title: req.body.shortTitle,
       category: req.body.category,
+      categories: categoriesValue,
       sku: req.body.sku,
       description: req.body.description,
-      photo_url: req.body.photoUrl,
+      photo_url: photoUrlValue,
+      image_url: imageUrlValue,
+      image_enabled:
+        req.body.imageEnabled !== undefined ? (req.body.imageEnabled ? 1 : 0) : null,
       weight_grams:
         req.body.weightGrams !== undefined ? Number(req.body.weightGrams) : null,
+      priority:
+        req.body.priority !== undefined && req.body.priority !== ""
+          ? Number(req.body.priority)
+          : null,
+      is_adult: req.body.isAdult !== undefined ? (req.body.isAdult ? 1 : 0) : null,
+      kcal: req.body.kcal !== undefined && req.body.kcal !== "" ? Number(req.body.kcal) : null,
+      protein:
+        req.body.protein !== undefined && req.body.protein !== ""
+          ? Number(req.body.protein)
+          : null,
+      fat: req.body.fat !== undefined && req.body.fat !== "" ? Number(req.body.fat) : null,
+      carbs: req.body.carbs !== undefined && req.body.carbs !== "" ? Number(req.body.carbs) : null,
+      core_id: req.body.coreId ?? null,
+      origin_id: req.body.originId ?? null,
       updated_at: nowIso(),
       item_id: itemId
     });
@@ -3010,12 +3915,24 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
      SET base_price = COALESCE(@base_price, base_price),
          is_available = COALESCE(@is_available, is_available),
          stock = COALESCE(@stock, stock),
+         stock_qty = COALESCE(@stock_qty, stock_qty),
+         is_visible = COALESCE(@is_visible, is_visible),
+         stoplist_active = COALESCE(@stoplist_active, stoplist_active),
+         stoplist_reason = CASE
+           WHEN @stoplist_reason_set = 1 THEN @stoplist_reason
+           ELSE stoplist_reason
+         END,
+         stoplist_until = CASE
+           WHEN @stoplist_until_set = 1 THEN @stoplist_until
+           ELSE stoplist_until
+         END,
+         delivery_methods = COALESCE(@delivery_methods, delivery_methods),
          unavailable_reason = CASE
-           WHEN @reason_set = 1 THEN @unavailable_reason
+           WHEN @unavailable_reason_set = 1 THEN @unavailable_reason
            ELSE unavailable_reason
          END,
          unavailable_until = CASE
-           WHEN @until_set = 1 THEN @unavailable_until
+           WHEN @unavailable_until_set = 1 THEN @unavailable_until
            ELSE unavailable_until
          END,
          updated_at = @updated_at
@@ -3023,11 +3940,21 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
   ).run({
     base_price: newBasePrice,
     is_available: isAvailable,
-    stock,
+    stock: stockProvided ? stockValue : null,
+    stock_qty: stockProvided ? stockValue : null,
+    is_visible: isVisible,
+    stoplist_active: stoplistActive,
+    stoplist_reason: stoplistReason,
+    stoplist_until: stoplistUntil,
+    stoplist_reason_set: stoplistReasonProvided || (stoplistProvided && stoplistActive === 0) ? 1 : 0,
+    stoplist_until_set: stoplistUntilProvided || (stoplistProvided && stoplistActive === 0) ? 1 : 0,
+    delivery_methods: deliveryMethodsProvided ? deliveryMethodsValue : null,
     unavailable_reason: unavailableReason,
     unavailable_until: unavailableUntil,
-    reason_set: reasonProvided || (isAvailableProvided && isAvailable === 1) ? 1 : 0,
-    until_set: untilProvided || (isAvailableProvided && isAvailable === 1) ? 1 : 0,
+    unavailable_reason_set:
+      reasonProvided || (isAvailableProvided && isAvailable === 1) || stoplistProvided ? 1 : 0,
+    unavailable_until_set:
+      untilProvided || (isAvailableProvided && isAvailable === 1) || stoplistProvided ? 1 : 0,
     updated_at: nowIso(),
     outlet_id: outletId,
     item_id: itemId
@@ -3048,38 +3975,387 @@ app.patch("/api/outlets/:outletId/items/:itemId", (req, res) => {
     );
   }
 
-  const updated = db
+  const updated = fetchItemProfile(db, outletId, itemId);
+
+  logAudit({
+    entity_type: "item",
+    entity_id: itemId,
+    action: "update",
+    actor_id: getActorId(req),
+    before: { outlet_id: outletId, ...outletItem },
+    after: { outlet_id: outletId, ...updated }
+  });
+
+  res.json(updated);
+});
+
+app.patch(
+  "/api/outlets/:outletId/items/:itemId/stoplist",
+  requireRole(["admin", "operator"]),
+  (req, res) => {
+    const outletId = Number(req.params.outletId);
+    const itemId = Number(req.params.itemId);
+    const { active, until, reason } = req.body || {};
+
+    const outletItem = db
+      .prepare(
+        `SELECT outlet_items.base_price,
+                outlet_items.is_available,
+                outlet_items.stock,
+                outlet_items.stock_qty,
+                outlet_items.is_visible,
+                outlet_items.unavailable_reason,
+                outlet_items.unavailable_until,
+                outlet_items.stoplist_active,
+                outlet_items.stoplist_until,
+                outlet_items.stoplist_reason,
+                outlet_items.delivery_methods,
+                items.title,
+                items.short_title,
+                items.category,
+                items.categories,
+                items.sku,
+                items.description,
+                items.photo_url,
+                items.image_url,
+                items.image_enabled,
+                items.weight_grams,
+                items.priority,
+                items.is_adult,
+                items.kcal,
+                items.protein,
+                items.fat,
+                items.carbs,
+                items.core_id,
+                items.origin_id
+         FROM outlet_items
+         JOIN items ON items.id = outlet_items.item_id
+         WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
+      )
+      .get(outletId, itemId);
+
+    if (!outletItem) {
+      return res.status(404).json({ error: "Outlet item not found" });
+    }
+
+    const stoplistActive = active ? 1 : 0;
+    if (stoplistActive === 1 && (!reason || String(reason).trim() === "")) {
+      return res.status(400).json({ error: "Stoplist reason is required" });
+    }
+
+    db.prepare(
+      `UPDATE outlet_items
+       SET stoplist_active = @stoplist_active,
+           stoplist_reason = @stoplist_reason,
+           stoplist_until = @stoplist_until,
+           is_available = @is_available,
+           unavailable_reason = @unavailable_reason,
+           unavailable_until = @unavailable_until,
+           updated_at = @updated_at
+       WHERE outlet_id = @outlet_id AND item_id = @item_id`
+    ).run({
+      stoplist_active: stoplistActive,
+      stoplist_reason: stoplistActive ? reason ?? null : null,
+      stoplist_until: stoplistActive ? until ?? null : null,
+      is_available: stoplistActive ? 0 : 1,
+      unavailable_reason: stoplistActive ? reason ?? null : null,
+      unavailable_until: stoplistActive ? until ?? null : null,
+      updated_at: nowIso(),
+      outlet_id: outletId,
+      item_id: itemId
+    });
+
+    const updated = fetchItemProfile(db, outletId, itemId);
+
+    logAudit({
+      entity_type: "item",
+      entity_id: itemId,
+      action: "stoplist",
+      actor_id: getActorId(req),
+      before: { outlet_id: outletId, ...outletItem },
+      after: { outlet_id: outletId, ...updated }
+    });
+
+    res.json(updated);
+  }
+);
+
+app.post("/api/outlets/:outletId/items/:itemId/duplicate", requireRole(["admin"]), (req, res) => {
+  const outletId = Number(req.params.outletId);
+  const itemId = Number(req.params.itemId);
+
+  const item = db
     .prepare(
-      `SELECT outlet_items.outlet_id,
-              outlet_items.item_id,
-              outlet_items.base_price,
+      `SELECT outlet_items.base_price,
               outlet_items.is_available,
               outlet_items.stock,
+              outlet_items.stock_qty,
+              outlet_items.is_visible,
               outlet_items.unavailable_reason,
               outlet_items.unavailable_until,
-              outlet_items.updated_at,
+              outlet_items.stoplist_active,
+              outlet_items.stoplist_until,
+              outlet_items.stoplist_reason,
+              outlet_items.delivery_methods,
               items.title,
+              items.short_title,
               items.category,
+              items.categories,
               items.sku,
               items.description,
               items.photo_url,
-              items.weight_grams
+              items.image_url,
+              items.image_enabled,
+              items.weight_grams,
+              items.priority,
+              items.is_adult,
+              items.kcal,
+              items.protein,
+              items.fat,
+              items.carbs,
+              items.core_id,
+              items.origin_id
        FROM outlet_items
        JOIN items ON items.id = outlet_items.item_id
        WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
     )
     .get(outletId, itemId);
-  res.json(updated);
+
+  if (!item) {
+    return res.status(404).json({ error: "Outlet item not found" });
+  }
+
+  const now = nowIso();
+  const newItemId = db
+    .prepare(
+      `INSERT INTO items
+        (title, short_title, sku, category, categories, description, photo_url, image_url, image_enabled,
+         weight_grams, priority, is_adult, kcal, protein, fat, carbs, core_id, origin_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      `${item.title} (copy)`,
+      item.short_title ?? null,
+      null,
+      item.category ?? null,
+      item.categories ?? null,
+      item.description ?? null,
+      item.photo_url ?? null,
+      item.image_url ?? item.photo_url ?? null,
+      item.image_enabled ?? 1,
+      item.weight_grams ?? 0,
+      item.priority ?? 0,
+      item.is_adult ?? 0,
+      item.kcal ?? null,
+      item.protein ?? null,
+      item.fat ?? null,
+      item.carbs ?? null,
+      item.core_id ?? null,
+      item.origin_id ?? String(itemId),
+      now
+    ).lastInsertRowid;
+
+  db.prepare(
+    `INSERT INTO outlet_items
+      (outlet_id, item_id, base_price, is_available, stock, stock_qty, is_visible,
+       stoplist_active, stoplist_reason, stoplist_until, delivery_methods,
+       unavailable_reason, unavailable_until, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    outletId,
+    newItemId,
+    Number(item.base_price || 0),
+    item.is_available ?? 1,
+    item.stock ?? null,
+    item.stock_qty ?? item.stock ?? null,
+    item.is_visible ?? 1,
+    item.stoplist_active ?? 0,
+    item.stoplist_reason ?? null,
+    item.stoplist_until ?? null,
+    item.delivery_methods ?? null,
+    item.unavailable_reason ?? null,
+    item.unavailable_until ?? null,
+    now
+  );
+
+  logAudit({
+    entity_type: "item",
+    entity_id: newItemId,
+    action: "duplicate",
+    actor_id: getActorId(req),
+    before: { outlet_id: outletId, source_item_id: itemId, ...item },
+    after: { outlet_id: outletId, item_id: newItemId }
+  });
+
+  res.status(201).json({ itemId: newItemId, outletId });
 });
+
+app.post(
+  "/api/outlets/:outletId/items/:itemId/copy-to-outlet",
+  requireRole(["admin"]),
+  (req, res) => {
+    const outletId = Number(req.params.outletId);
+    const itemId = Number(req.params.itemId);
+    const targetOutletId = Number(req.body?.target_outlet_id);
+    if (!targetOutletId) {
+      return res.status(400).json({ error: "Target outlet is required" });
+    }
+
+    const targetExists = db
+      .prepare("SELECT 1 FROM outlets WHERE id = ?")
+      .get(targetOutletId);
+    if (!targetExists) {
+      return res.status(404).json({ error: "Target outlet not found" });
+    }
+
+    const item = db
+      .prepare(
+        `SELECT outlet_items.base_price,
+                outlet_items.is_available,
+                outlet_items.stock,
+                outlet_items.stock_qty,
+                outlet_items.is_visible,
+                outlet_items.unavailable_reason,
+                outlet_items.unavailable_until,
+                outlet_items.stoplist_active,
+                outlet_items.stoplist_until,
+                outlet_items.stoplist_reason,
+                outlet_items.delivery_methods,
+                items.title,
+                items.short_title,
+                items.category,
+                items.categories,
+                items.sku,
+                items.description,
+                items.photo_url,
+                items.image_url,
+                items.image_enabled,
+                items.weight_grams,
+                items.priority,
+                items.is_adult,
+                items.kcal,
+                items.protein,
+                items.fat,
+                items.carbs,
+                items.core_id,
+                items.origin_id
+         FROM outlet_items
+         JOIN items ON items.id = outlet_items.item_id
+         WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
+      )
+      .get(outletId, itemId);
+
+    if (!item) {
+      return res.status(404).json({ error: "Outlet item not found" });
+    }
+
+    const now = nowIso();
+    const newItemId = db
+      .prepare(
+        `INSERT INTO items
+          (title, short_title, sku, category, categories, description, photo_url, image_url, image_enabled,
+           weight_grams, priority, is_adult, kcal, protein, fat, carbs, core_id, origin_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        item.title,
+        item.short_title ?? null,
+        null,
+        item.category ?? null,
+        item.categories ?? null,
+        item.description ?? null,
+        item.photo_url ?? null,
+        item.image_url ?? item.photo_url ?? null,
+        item.image_enabled ?? 1,
+        item.weight_grams ?? 0,
+        item.priority ?? 0,
+        item.is_adult ?? 0,
+        item.kcal ?? null,
+        item.protein ?? null,
+        item.fat ?? null,
+        item.carbs ?? null,
+        item.core_id ?? null,
+        item.origin_id ?? String(itemId),
+        now
+      ).lastInsertRowid;
+
+    db.prepare(
+      `INSERT INTO outlet_items
+        (outlet_id, item_id, base_price, is_available, stock, stock_qty, is_visible,
+         stoplist_active, stoplist_reason, stoplist_until, delivery_methods,
+         unavailable_reason, unavailable_until, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      targetOutletId,
+      newItemId,
+      Number(item.base_price || 0),
+      item.is_available ?? 1,
+      item.stock ?? null,
+      item.stock_qty ?? item.stock ?? null,
+      item.is_visible ?? 1,
+      item.stoplist_active ?? 0,
+      item.stoplist_reason ?? null,
+      item.stoplist_until ?? null,
+      item.delivery_methods ?? null,
+      item.unavailable_reason ?? null,
+      item.unavailable_until ?? null,
+      now
+    );
+
+    logAudit({
+      entity_type: "item",
+      entity_id: newItemId,
+      action: "copy_to_outlet",
+      actor_id: getActorId(req),
+      before: { outlet_id: outletId, source_item_id: itemId, ...item },
+      after: { outlet_id: targetOutletId, item_id: newItemId }
+    });
+
+    res.status(201).json({ itemId: newItemId, outletId: targetOutletId });
+  }
+);
 
 app.delete("/api/outlets/:outletId/items/:itemId", requireRole(["admin"]), (req, res) => {
   const outletId = Number(req.params.outletId);
   const itemId = Number(req.params.itemId);
 
-  const exists = db
-    .prepare("SELECT 1 FROM outlet_items WHERE outlet_id = ? AND item_id = ?")
+  const existing = db
+    .prepare(
+      `SELECT outlet_items.base_price,
+              outlet_items.is_available,
+              outlet_items.stock,
+              outlet_items.stock_qty,
+              outlet_items.is_visible,
+              outlet_items.unavailable_reason,
+              outlet_items.unavailable_until,
+              outlet_items.stoplist_active,
+              outlet_items.stoplist_until,
+              outlet_items.stoplist_reason,
+              outlet_items.delivery_methods,
+              items.title,
+              items.short_title,
+              items.category,
+              items.categories,
+              items.sku,
+              items.description,
+              items.photo_url,
+              items.image_url,
+              items.image_enabled,
+              items.weight_grams,
+              items.priority,
+              items.is_adult,
+              items.kcal,
+              items.protein,
+              items.fat,
+              items.carbs,
+              items.core_id,
+              items.origin_id
+       FROM outlet_items
+       JOIN items ON items.id = outlet_items.item_id
+       WHERE outlet_items.outlet_id = ? AND outlet_items.item_id = ?`
+    )
     .get(outletId, itemId);
-  if (!exists) {
+  if (!existing) {
     return res.status(404).json({ error: "Outlet item not found" });
   }
 
@@ -3092,6 +4368,15 @@ app.delete("/api/outlets/:outletId/items/:itemId", requireRole(["admin"]), (req,
   db.prepare(
     "DELETE FROM outlet_items WHERE outlet_id = ? AND item_id = ?"
   ).run(outletId, itemId);
+
+  logAudit({
+    entity_type: "item",
+    entity_id: itemId,
+    action: "delete",
+    actor_id: getActorId(req),
+    before: { outlet_id: outletId, ...existing },
+    after: null
+  });
 
   res.json({ ok: true });
 });
@@ -3616,6 +4901,9 @@ app.get("/api/orders/:id/details", (req, res) => {
               orders.courier_fee,
               orders.service_fee,
               orders.discount_amount,
+              orders.promo_discount_amount,
+              orders.campaign_discount_amount,
+              orders.campaign_ids,
               orders.promo_code,
               orders.delivery_address,
               orders.delivery_address_comment,
@@ -3651,6 +4939,7 @@ app.get("/api/orders/:id/details", (req, res) => {
   const items = db
     .prepare(
       `SELECT id,
+              item_id,
               title,
               description,
               photo_url,
@@ -3683,6 +4972,8 @@ app.get("/api/orders/:id/details", (req, res) => {
       payload: normalizeEventPayload(event.payload)
     }));
   const signals = computeOrderSignals(row, events);
+  const promoDiscount = row.promo_discount_amount ?? row.discount_amount ?? 0;
+  const campaignDiscount = row.campaign_discount_amount ?? 0;
   const totalAmount =
     row.total_amount ??
     Math.max(
@@ -3690,7 +4981,8 @@ app.get("/api/orders/:id/details", (req, res) => {
       (row.subtotal_food || 0) +
         (row.courier_fee || 0) +
         (row.service_fee || 0) -
-        (row.discount_amount || 0)
+        promoDiscount -
+        campaignDiscount
     );
   res.json({
     ...row,
@@ -3937,21 +5229,58 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
     if (!value || Number.isNaN(value)) {
       return res.status(400).json({ error: "value is required" });
     }
+    const amount =
+      mode === "percent"
+        ? Math.max(0, Math.round(((order.subtotal_food || 0) * value) / 100))
+        : Math.max(0, Math.round(value));
+    if (!amount) {
+      return res.status(400).json({ error: "value is invalid" });
+    }
+    const actorRole = getRole(req);
+    const actorTg = getActorTg(req);
+    const actorId = getActorId(req);
+    createLedgerStmt.run({
+      title: `Compensation ${order.order_number}`,
+      amount,
+      status: "completed",
+      type: "compensation",
+      user_id: order.client_user_id,
+      partner_id: null,
+      order_id: order.id,
+      balance_delta: amount,
+      category: "client",
+      entity_type: "client",
+      entity_id: order.client_user_id,
+      currency: "UZS",
+      meta_json: JSON.stringify({ reason, mode, value, comment }),
+      created_by_role: actorRole,
+      created_by_tg_id: actorTg || null
+    });
+    insertOrderAdjustmentStmt.run({
+      order_id: order.id,
+      kind: "compensation",
+      amount,
+      reason_code: reason,
+      comment: comment || null,
+      created_by_role: actorRole,
+      created_by_tg_id: actorTg || null,
+      created_at: nowIso()
+    });
     logOrderEvent({
       order_id: id,
       type: "compensation_issued",
-      payload: { reason, mode, value, comment },
-      actor_id: getActorId(req)
+      payload: { reason, mode, value, amount, comment },
+      actor_id: actorId
     });
     logAudit({
       entity_type: "order",
       entity_id: id,
       action: "compensation",
-      actor_id: getActorId(req),
+      actor_id: actorId,
       before: order,
       after: { ...order }
     });
-      res.status(201).json({ status: "ok" });
+      res.status(201).json({ status: "ok", amount });
     }
   );
 
@@ -3975,6 +5304,7 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
 
       const normalized = incomingItems.map((item) => ({
         id: item?.id ? Number(item.id) : null,
+        item_id: item?.item_id ? Number(item.item_id) : null,
         title: String(item?.title || "").trim(),
         description: item?.description ? String(item.description).trim() : null,
         photo_url: item?.photo_url ? String(item.photo_url).trim() : null,
@@ -4013,6 +5343,7 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
             }
             seenIds.add(item.id);
             updateOrderItemStmt.run(
+              item.item_id ?? null,
               item.title,
               item.description,
               item.photo_url,
@@ -4027,6 +5358,7 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
           } else {
             insertOrderItemStmt.run(
               id,
+              item.item_id ?? null,
               item.title,
               item.description,
               item.photo_url,
@@ -4046,26 +5378,36 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
         });
 
         const afterItems = getOrderItemsStmt.all(id);
-        const subtotalFood = afterItems.reduce(
-          (sum, item) => sum + Number(item.total_price || 0),
-          0
-        );
-        const totalAmount = Math.max(
-          0,
-          subtotalFood +
-            (order.courier_fee || 0) +
-            (order.service_fee || 0) -
-            (order.discount_amount || 0)
-        );
+        const pricing = computeOrderPricing({ order, items: afterItems });
         updateOrderTotalsStmt.run({
           id,
-          subtotal_food: subtotalFood,
-          total_amount: totalAmount
+          subtotal_food: pricing.subtotal_food,
+          discount_amount: pricing.promo_discount_amount + pricing.campaign_discount_amount,
+          promo_discount_amount: pricing.promo_discount_amount,
+          campaign_discount_amount: pricing.campaign_discount_amount,
+          campaign_ids: pricing.applied_campaigns.length
+            ? JSON.stringify(pricing.applied_campaigns.map((entry) => entry.campaign_id))
+            : null,
+          total_amount: pricing.total_amount
+        });
+
+        deleteCampaignUsageByOrderStmt.run(id);
+        pricing.applied_campaigns.forEach((entry) => {
+          insertCampaignUsageStmt.run(
+            entry.campaign_id,
+            id,
+            order.client_user_id || null,
+            entry.discount_amount || 0
+          );
         });
         logOrderEvent({
           order_id: id,
           type: "cart_updated",
-          payload: { comment },
+          payload: {
+            comment,
+            promo_discount_amount: pricing.promo_discount_amount,
+            campaign_discount_amount: pricing.campaign_discount_amount
+          },
           actor_id: actorId
         });
         logAudit({
@@ -4076,18 +5418,24 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
           before: {
             items: beforeItems,
             subtotal_food: order.subtotal_food,
+            promo_discount_amount: order.promo_discount_amount ?? order.discount_amount ?? 0,
+            campaign_discount_amount: order.campaign_discount_amount ?? 0,
             total_amount: order.total_amount
           },
           after: {
             items: afterItems,
-            subtotal_food: subtotalFood,
-            total_amount: totalAmount
+            subtotal_food: pricing.subtotal_food,
+            promo_discount_amount: pricing.promo_discount_amount,
+            campaign_discount_amount: pricing.campaign_discount_amount,
+            total_amount: pricing.total_amount
           }
         });
         return {
           items: afterItems,
-          subtotal_food: subtotalFood,
-          total_amount: totalAmount
+          subtotal_food: pricing.subtotal_food,
+          promo_discount_amount: pricing.promo_discount_amount,
+          campaign_discount_amount: pricing.campaign_discount_amount,
+          total_amount: pricing.total_amount
         };
       });
 
@@ -4829,3 +6177,4 @@ setupCampaignRoutes({ app, db, requireRole, logAudit, nowIso, parseSort, getActo
 app.listen(port, () => {
   console.log(`Backend listening on port ${port}`);
 });
+
