@@ -517,7 +517,7 @@ const seedCampaigns = (db) => {
 
   const startedAt = nowIso();
   const endedAt = new Date(Date.parse(startedAt) + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const deliveryMethods = JSON.stringify(["walk", "bike"]);
+  const deliveryMethods = JSON.stringify(["courier", "pickup"]);
   const ownerRole = "admin";
   const ownerTg = "@admin";
 
