@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
@@ -467,6 +468,143 @@ const ensureTestData = (db) => {
   }
 };
 
+const seedCampaigns = (db) => {
+  const outlet = db
+    .prepare("SELECT id FROM outlets ORDER BY id LIMIT 1")
+    .get();
+  if (!outlet) {
+    return;
+  }
+  const existing = db
+    .prepare("SELECT COUNT(*) as count FROM campaigns WHERE outlet_id = ?")
+    .get(outlet.id);
+  if (existing.count > 0) {
+    return;
+  }
+  const outletItems = db
+    .prepare(
+      `SELECT item_id, base_price
+       FROM outlet_items
+       WHERE outlet_id = ?
+       ORDER BY item_id ASC`
+    )
+    .all(outlet.id);
+  if (!outletItems.length) {
+    return;
+  }
+
+  const createCampaignStmt = db.prepare(
+    `INSERT INTO campaigns
+      (id, outlet_id, type, title, description, priority, status, start_at, end_at,
+       active_days, active_hours, min_order_amount, max_uses_total, max_uses_per_client,
+       delivery_methods, stoplist_policy, bundle_fixed_price, bundle_percent_discount,
+       created_by_role, created_by_tg_id, created_at, updated_at)
+     VALUES (@id,@outlet_id,@type,@title,@description,@priority,@status,@start_at,@end_at,
+             @active_days,@active_hours,@min_order_amount,@max_uses_total,@max_uses_per_client,
+             @delivery_methods,@stoplist_policy,@bundle_fixed_price,@bundle_percent_discount,
+             @created_by_role,@created_by_tg_id,@created_at,@updated_at)`
+  );
+  const insertItemStmt = db.prepare(
+    `INSERT INTO campaign_items
+       (campaign_id, outlet_id, item_id, qty, required, discount_type, discount_value)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+  const insertUsageStmt = db.prepare(
+    `INSERT INTO campaign_usage
+       (campaign_id, order_id, client_user_id, discount_amount, applied_at)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+
+  const startedAt = nowIso();
+  const endedAt = new Date(Date.parse(startedAt) + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const deliveryMethods = JSON.stringify(["walk", "bike"]);
+  const ownerRole = "admin";
+  const ownerTg = "@admin";
+
+  const discountCampaignId = crypto.randomUUID();
+  createCampaignStmt.run({
+    id: discountCampaignId,
+    outlet_id: outlet.id,
+    type: "discount",
+    title: "Welcome discount",
+    description: "10% off on selected items",
+    priority: 5,
+    status: "draft",
+    start_at: startedAt,
+    end_at: endedAt,
+    active_days: JSON.stringify(["mon", "tue", "wed", "thu", "fri"]),
+    active_hours: JSON.stringify(["10:00-22:00"]),
+    min_order_amount: 20000,
+    max_uses_total: 500,
+    max_uses_per_client: 5,
+    delivery_methods: deliveryMethods,
+    stoplist_policy: "hide",
+    bundle_fixed_price: null,
+    bundle_percent_discount: null,
+    created_by_role: ownerRole,
+    created_by_tg_id: ownerTg,
+    created_at: startedAt,
+    updated_at: startedAt
+  });
+
+  const bundleCampaignId = crypto.randomUUID();
+  const bundleItems = outletItems.slice(0, 3);
+  const bundleSum = bundleItems.reduce(
+    (sum, item) => sum + (item.base_price || 0),
+    0
+  );
+  createCampaignStmt.run({
+    id: bundleCampaignId,
+    outlet_id: outlet.id,
+    type: "bundle",
+    title: "Set meal combo",
+    description: "Bundle is cheaper than ordering separately",
+    priority: 10,
+    status: "paused",
+    start_at: startedAt,
+    end_at: endedAt,
+    active_days: JSON.stringify(["sat", "sun"]),
+    active_hours: JSON.stringify(["12:00-20:00"]),
+    min_order_amount: 0,
+    max_uses_total: 200,
+    max_uses_per_client: 2,
+    delivery_methods: deliveryMethods,
+    stoplist_policy: "hide",
+    bundle_fixed_price: Math.max(0, bundleSum - 8000),
+    bundle_percent_discount: null,
+    created_by_role: ownerRole,
+    created_by_tg_id: ownerTg,
+    created_at: startedAt,
+    updated_at: startedAt
+  });
+
+  outletItems.slice(0, 2).forEach((item, index) => {
+    insertItemStmt.run(
+      discountCampaignId,
+      outlet.id,
+      item.item_id,
+      1,
+      1,
+      index === 0 ? "percent" : "fixed",
+      index === 0 ? 10 : 5000
+    );
+  });
+  bundleItems.forEach((item) => {
+    insertItemStmt.run(bundleCampaignId, outlet.id, item.item_id, 1, 1, "percent", 10);
+  });
+
+  const orderRow = db.prepare("SELECT id, client_user_id FROM orders ORDER BY id LIMIT 1").get();
+  if (orderRow) {
+    insertUsageStmt.run(
+      bundleCampaignId,
+      orderRow.id,
+      orderRow.client_user_id,
+      5000,
+      startedAt
+    );
+  }
+};
+
 const seedIfEmpty = (db) => {
   const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get();
   const hasUsers = userCount.count > 0;
@@ -811,6 +949,7 @@ const seedIfEmpty = (db) => {
 
   ensureTestData(db);
   seedClients(db);
+  seedCampaigns(db);
 };
 
 export const initDb = () => {

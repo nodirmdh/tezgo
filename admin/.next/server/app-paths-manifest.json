@@ -1,6 +1,7 @@
 {
-  "/promos/page": "app/promos/page.js",
-  "/audit/page": "app/audit/page.js",
+  "/outlets/page": "app/outlets/page.js",
+  "/partners/page": "app/partners/page.js",
   "/orders/page": "app/orders/page.js",
-  "/orders/[id]/page": "app/orders/[id]/page.js"
+  "/finance/page": "app/finance/page.js",
+  "/promos/page": "app/promos/page.js"
 }

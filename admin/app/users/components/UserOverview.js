@@ -11,7 +11,8 @@ export default function UserOverview({
   role,
   onUpdate,
   onDelete,
-  onToast
+  onToast,
+  embedded = false
 }) {
   const { locale, t } = useLocale();
   const isAdmin = useMemo(() => role === "Admin", [role]);
@@ -25,14 +26,14 @@ export default function UserOverview({
 
   return (
     <div className="profile-grid">
-      <section className="card profile-card">
+      <section className={`card profile-card${embedded ? " embedded-card" : ""}`}>
         <div className="profile-title">{t("users.overview.title")}</div>
         <div className="profile-row">
-          <span className="muted">TG ID</span>
+          <span className="muted">{t("users.table.tgId")}</span>
           <span>{user.tg_id}</span>
         </div>
         <div className="profile-row">
-          <span className="muted">Username</span>
+          <span className="muted">{t("users.table.username")}</span>
           <span>{user.username}</span>
         </div>
         <div className="profile-row">
@@ -57,7 +58,7 @@ export default function UserOverview({
         </div>
       </section>
 
-      <section className="card profile-card">
+      <section className={`card profile-card${embedded ? " embedded-card" : ""}`}>
         <div className="profile-title">{t("users.overview.actions")}</div>
         <div className="action-grid">
           <form onSubmit={(event) => handleSubmit(event, onUpdate)}>

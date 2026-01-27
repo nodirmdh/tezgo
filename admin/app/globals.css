@@ -336,6 +336,10 @@ textarea {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
+.form-row.three {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
 .helper-text {
   font-size: var(--font-12);
   color: var(--text-muted);

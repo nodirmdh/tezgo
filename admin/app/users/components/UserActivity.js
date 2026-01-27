@@ -4,10 +4,10 @@ import { useLocale } from "../../components/LocaleProvider";
 
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : "-");
 
-export default function UserActivity({ data, loading, error }) {
+export default function UserActivity({ data, loading, error, embedded = false }) {
   const { t } = useLocale();
   return (
-    <section className="card profile-card">
+    <section className={`card profile-card${embedded ? " embedded-card" : ""}`}>
       <div className="profile-title">{t("users.activity.title")}</div>
       {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (

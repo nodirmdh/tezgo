@@ -3,7 +3,7 @@
 import { translateStatus } from "../../../lib/i18n";
 import { useLocale } from "../../components/LocaleProvider";
 
-export default function UserFinance({ data, loading, error }) {
+export default function UserFinance({ data, loading, error, embedded = false }) {
   const { locale, t } = useLocale();
 
   if (loading) {
@@ -21,7 +21,7 @@ export default function UserFinance({ data, loading, error }) {
   }
 
   return (
-    <section className="card profile-card">
+    <section className={`card profile-card${embedded ? " embedded-card" : ""}`}>
       <div className="profile-title">{t("users.finance.title")}</div>
       <div className="cards compact">
         {(data.summary || []).map((item) => (

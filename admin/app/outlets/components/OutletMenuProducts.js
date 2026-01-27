@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import Toast from "../../components/Toast";
 import useConfirm from "../../components/useConfirm";
 import { normalizeRole } from "../../../lib/rbac";
@@ -417,6 +418,12 @@ export default function OutletMenuProducts({ outletId, role }) {
                 <td>{item.updatedAt || "-"}</td>
                 <td>
                   <div className="table-actions">
+                    <Link
+                      className="action-link"
+                      href={`/outlets/${outletId}/items/${item.itemId}`}
+                    >
+                      {t("outlets.menu.profile.open")}
+                    </Link>
                     <button
                       className="action-link"
                       type="button"

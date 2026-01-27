@@ -15,10 +15,10 @@ const parseJson = (value) => {
   }
 };
 
-export default function UserAudit({ data, loading, error }) {
+export default function UserAudit({ data, loading, error, embedded = false }) {
   const { t } = useLocale();
   return (
-    <section className="card profile-card">
+    <section className={`card profile-card${embedded ? " embedded-card" : ""}`}>
       <div className="profile-title">{t("users.audit.title")}</div>
       {error ? <div className="banner error">{t(error)}</div> : null}
       {loading ? (

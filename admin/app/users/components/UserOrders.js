@@ -19,14 +19,15 @@ export default function UserOrders({
   loading,
   error,
   onFilterChange,
-  onPageChange
+  onPageChange,
+  embedded = false
 }) {
   const { locale, t } = useLocale();
   const router = useRouter();
   const totalPages = Math.max(1, Math.ceil(data.total / data.page_size));
 
   return (
-    <section className="card profile-card">
+    <section className={`card profile-card${embedded ? " embedded-card" : ""}`}>
       <div className="profile-title">{t("users.orders.title")}</div>
       <div className="toolbar">
         <div className="toolbar-actions">

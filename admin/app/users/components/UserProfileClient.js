@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiJson } from "../../../lib/api/client";
 import Toast from "../../components/Toast";
-import UserTabs from "./UserTabs";
 import UserOverview from "./UserOverview";
 import UserOrders from "./UserOrders";
 import UserFinance from "./UserFinance";
@@ -16,7 +15,6 @@ const defaultOrders = { items: [], page: 1, page_size: 10, total: 0 };
 
 export default function UserProfileClient({ userId, initialUser }) {
   const { locale, t } = useLocale();
-  const [activeTab, setActiveTab] = useState("overview");
   const [user, setUser] = useState(initialUser);
   const [role, setRole] = useState("Support");
   const [toast, setToast] = useState(null);
@@ -41,15 +39,6 @@ export default function UserProfileClient({ userId, initialUser }) {
     const parsed = JSON.parse(stored);
     setRole(parsed.role || "Support");
   }, []);
-
-  const loadUser = async () => {
-    const result = await apiJson(`/api/users/${userId}`);
-    if (!result.ok) {
-      setToast({ type: "error", message: t(result.error) });
-      return;
-    }
-    setUser(result.data);
-  };
 
   const loadOrders = async (filters) => {
     setTabState((prev) => ({
@@ -150,19 +139,14 @@ export default function UserProfileClient({ userId, initialUser }) {
   };
 
   useEffect(() => {
-    if (activeTab === "orders") {
-      loadOrders(orderFilters);
-    }
-    if (activeTab === "finance") {
-      loadFinance();
-    }
-    if (activeTab === "activity") {
-      loadActivity();
-    }
-    if (activeTab === "audit") {
-      loadAudit();
-    }
-  }, [activeTab, orderFilters]);
+    loadOrders(orderFilters);
+  }, [orderFilters, userId]);
+
+  useEffect(() => {
+    loadFinance();
+    loadActivity();
+    loadAudit();
+  }, [userId]);
 
   const handleUpdateUser = async (formData) => {
     const payload = {
@@ -207,60 +191,71 @@ export default function UserProfileClient({ userId, initialUser }) {
         type={toast?.type}
         onClose={() => setToast(null)}
       />
-      <div className="profile-header">
-        <div>
-          <div className="profile-eyebrow">{t("users.profile.eyebrow")}</div>
-          <h1>{user.username || user.tg_id}</h1>
-          <div className="helper-text">
-            {t("users.profile.idLabel")}: {user.id}
+      <section className="card profile-card user-profile-card">
+        <div className="profile-header">
+          <div>
+            <div className="profile-eyebrow">{t("users.profile.eyebrow")}</div>
+            <h1>{user.username || user.tg_id}</h1>
+            <div className="helper-text">
+              {t("users.profile.idLabel")}: {user.id}
+            </div>
+          </div>
+          <div className="profile-role">
+            <span className="badge">{translateRole(locale, user.role)}</span>
+            <span className="badge">{translateStatus(locale, user.status)}</span>
           </div>
         </div>
-        <div className="profile-role">
-          <span className="badge">{translateRole(locale, user.role)}</span>
-          <span className="badge">{translateStatus(locale, user.status)}</span>
+
+        <div className="profile-section">
+          <UserOverview
+            embedded
+            user={user}
+            role={role}
+            onUpdate={handleUpdateUser}
+            onDelete={handleDeleteUser}
+            onToast={(message, type) => setToast({ message, type })}
+          />
         </div>
-      </div>
-      <UserTabs active={activeTab} onChange={setActiveTab} />
-      {activeTab === "overview" ? (
-        <UserOverview
-          user={user}
-          role={role}
-          onUpdate={handleUpdateUser}
-          onDelete={handleDeleteUser}
-          onToast={(message, type) => setToast({ message, type })}
-        />
-      ) : null}
-      {activeTab === "orders" ? (
-        <UserOrders
-          data={tabState.orders.data}
-          filters={orderFilters}
-          loading={tabState.orders.loading}
-          error={tabState.orders.error}
-          onFilterChange={(filters) => setOrderFilters(filters)}
-          onPageChange={(page) => setOrderFilters({ ...orderFilters, page })}
-        />
-      ) : null}
-      {activeTab === "finance" ? (
-        <UserFinance
-          data={financeData}
-          loading={tabState.finance.loading}
-          error={tabState.finance.error}
-        />
-      ) : null}
-      {activeTab === "activity" ? (
-        <UserActivity
-          data={tabState.activity.data}
-          loading={tabState.activity.loading}
-          error={tabState.activity.error}
-        />
-      ) : null}
-      {activeTab === "audit" ? (
-        <UserAudit
-          data={tabState.audit.data}
-          loading={tabState.audit.loading}
-          error={tabState.audit.error}
-        />
-      ) : null}
+
+        <div className="profile-section">
+          <UserOrders
+            embedded
+            data={tabState.orders.data}
+            filters={orderFilters}
+            loading={tabState.orders.loading}
+            error={tabState.orders.error}
+            onFilterChange={(filters) => setOrderFilters(filters)}
+            onPageChange={(page) => setOrderFilters({ ...orderFilters, page })}
+          />
+        </div>
+
+        <div className="profile-section">
+          <UserFinance
+            embedded
+            data={financeData}
+            loading={tabState.finance.loading}
+            error={tabState.finance.error}
+          />
+        </div>
+
+        <div className="profile-section">
+          <UserActivity
+            embedded
+            data={tabState.activity.data}
+            loading={tabState.activity.loading}
+            error={tabState.activity.error}
+          />
+        </div>
+
+        <div className="profile-section">
+          <UserAudit
+            embedded
+            data={tabState.audit.data}
+            loading={tabState.audit.loading}
+            error={tabState.audit.error}
+          />
+        </div>
+      </section>
     </div>
   );
 }
