@@ -233,8 +233,8 @@ export default function OrderActions({
             </button>
           </div>
           <div className="form-row two">
-            <input
-              className="input"
+            <textarea
+              className="textarea"
               placeholder={t("orders.support.notifyPlaceholder")}
               value={notifyMessage}
               onChange={(event) => setNotifyMessage(event.target.value)}
