@@ -12,7 +12,7 @@ npm run dev
 ## База данных
 - SQLite файл по умолчанию: `backend/data/app.db`
 - Миграции применяются автоматически при запуске.
-- При пустой базе добавляются сиды (users/partners/outlets/couriers/orders).
+- Сиды добавляются только при `SEED_DATA=true` (users/partners/outlets/couriers/orders).
 
 ## Проверка
 - `GET /health` возвращает `{ "status": "ok" }`.
