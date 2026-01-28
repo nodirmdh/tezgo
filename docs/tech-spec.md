@@ -279,3 +279,42 @@
 - При создании позиции категория выбирается из списка или создаётся в один шаг.
 - Партнёр видит и редактирует только свои точки (через partner_users → points).
 - Админ может просматривать и править меню точек (цена, доступность, категория).
+
+## 15. Partner Orders (операционка)
+- В partner miniapp доступны статусы: Новые (created/pending_partner), В работе (accepted/preparing), Готово (ready), История (handed_over/delivered/closed/rejected).
+- Партнёр принимает или отклоняет заказ с обязательной причиной.
+- Партнёр переводит заказ в “готово”.
+- Самовывоз: выдача подтверждается кодом, статус → handed_over/closed.
+- Доставка: код показывается партнёру, подтверждение выдачи выполняет курьер.
+- Финансы фиксируются как снимок: food_total, service_fee=3000, commission_percent_snapshot, commission_from_food, partner_net.
+
+## 16. Client miniapp MVP
+- Экран каталога точек с поиском.
+- Меню точки: категории (chips), позиции, управление количеством.
+- Корзина в localStorage, сервисный сбор 3000.
+- Оформление: доставка (адрес/комментарий) или самовывоз (слоты), приборы/салфетки, комментарий к заказу.
+- Создание заказа через `/client/orders`, статус `pending_partner`.
+- Статус заказа + таймлайн + состав + суммы.
+- Код выдачи отображается клиенту только для pickup и статуса ready/handed_over.
+
+## 17. Courier miniapp MVP
+- Режим назначения: dispatch (по умолчанию) или marketplace через `COURIER_ASSIGN_MODE`.
+- Курьер видит свои заказы и проходит статусы: assigned → picked_up → in_transit → delivered.
+- Подтверждение доставки по handoff коду (hash в БД).
+- Запрет отмены курьером, отмена доступна только support/admin с фиксацией источника и штрафа.
+
+## 18. Operational Admin
+- Дашборд: counts по статусам, проблемные заказы, заказы без курьера, топ курьеров.
+- Авто-флаги проблем (`problem_flags`) на базе SLA и ошибок handoff.
+- Назначение курьеров и отмены с фиксацией источника/штрафа.
+- Audit log по заказам/партнёрам/пользователям.
+- Отчеты: payout report по партнёрам и экспорт CSV заказов.
+
+## 19. Staging/Prod готовность
+- Docker окружение для backend/admin/miniapps + nginx reverse proxy.
+- /health endpoint для backend.
+- CORS allowlist через ALLOWED_ORIGINS.
+- Auth cookies: SameSite=None + Secure в prod, Lax в dev.
+- Структурированные логи с request_id.
+- Sentry для backend/admin/miniapp (без логирования чувствительных данных).
+- Бэкапы SQLite и восстановление по скриптам.

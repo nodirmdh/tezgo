@@ -16,7 +16,10 @@ const navItems = [
   { href: "/points", labelKey: "nav.points", roles: ["admin", "support", "operator", "read-only"] },
   { href: "/outlets", labelKey: "nav.outlets", roles: ["admin", "support", "operator", "read-only"] },
   { href: "/couriers", labelKey: "nav.couriers", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/couriers/leaderboard", labelKey: "nav.courierLeaderboard", roles: ["admin", "support", "operator"] },
   { href: "/orders", labelKey: "nav.orders", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/problem-flags", labelKey: "nav.problemFlags", roles: ["admin", "support", "operator"] },
+  { href: "/partners/payout-report", labelKey: "nav.payoutReport", roles: ["admin", "support", "operator"] },
   { href: "/finance", labelKey: "nav.finance", roles: ["admin"] },
   { href: "/promos", labelKey: "nav.promos", roles: ["admin"] },
   { href: "/audit", labelKey: "nav.audit", roles: ["admin"] }

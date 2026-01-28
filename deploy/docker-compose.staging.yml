@@ -1,0 +1,83 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      PORT: 3002
+      NODE_ENV: production
+      TRUST_PROXY: "true"
+      COOKIE_SAMESITE: "none"
+      LOG_LEVEL: info
+      LOG_PRETTY: "false"
+    env_file:
+      - ./env.backend.staging
+    volumes:
+      - ../backend/data:/app/backend/data
+    expose:
+      - "3002"
+
+  admin:
+    build:
+      context: ..
+      dockerfile: admin/Dockerfile
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: https://api.nodgo.uz
+    env_file:
+      - ./env.admin.staging
+    expose:
+      - "3001"
+
+  miniapp-client:
+    build:
+      context: ..
+      dockerfile: miniapp/Dockerfile.client
+      args:
+        VITE_API_BASE_URL: https://api.nodgo.uz
+        APP_VARIANT: client
+    env_file:
+      - ./env.miniapp.staging
+    expose:
+      - "80"
+
+  miniapp-partner:
+    build:
+      context: ..
+      dockerfile: miniapp/Dockerfile.partner
+      args:
+        VITE_API_BASE_URL: https://api.nodgo.uz
+        APP_VARIANT: partner
+    env_file:
+      - ./env.miniapp.staging
+    expose:
+      - "80"
+
+  miniapp-courier:
+    build:
+      context: ..
+      dockerfile: miniapp/Dockerfile.courier
+      args:
+        VITE_API_BASE_URL: https://api.nodgo.uz
+        APP_VARIANT: courier
+    env_file:
+      - ./env.miniapp.staging
+    expose:
+      - "80"
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - backend
+      - admin
+      - miniapp-client
+      - miniapp-partner
+      - miniapp-courier
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.staging.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/letsencrypt:ro

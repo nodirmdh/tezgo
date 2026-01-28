@@ -33,3 +33,13 @@
 - Код передачи заказа (handoff): генерируется при создании заказа, хранится как hash + encrypted, подтверждение через `POST /api/orders/:id/confirm-handoff`.
 - Меню точек партнёра: `GET/POST/PUT/DELETE /partner/points/:pointId/categories` и `GET/POST/PUT/PATCH/DELETE /partner/points/:pointId/items`.
 - Admin меню точек: `GET /admin/points/:pointId/categories`, `GET/PUT /admin/points/:pointId/items`, `PATCH /admin/points/:pointId/items/:id/availability`.
+- Partner Orders: `GET /partner/orders`, `GET /partner/orders/:id`, `POST /partner/orders/:id/accept`, `POST /partner/orders/:id/reject`, `POST /partner/orders/:id/ready`, `POST /partner/orders/:id/confirm-handoff`.
+- Courier Orders: `GET /courier/orders/assigned`, `GET /courier/orders/available` (marketplace), `POST /courier/orders/:id/picked-up`, `POST /courier/orders/:id/in-transit`, `POST /courier/orders/:id/delivered`.
+- Admin Operational: `GET /admin/dashboard/summary`, `GET /admin/orders`, `GET /admin/orders/:id`, `GET /admin/orders/:id/audit`, `POST /admin/orders/:id/assign-courier`, `POST /admin/orders/:id/cancel`, `GET /admin/problem-flags`, `PATCH /admin/problem-flags/:id/resolve`.
+- Отчеты: `GET /admin/partners/payout-report`, `GET /admin/partners/payout-report/export`, `GET /admin/orders/export`, `GET /admin/couriers/leaderboard`.
+
+## Инфраструктура
+- Docker для backend/admin/miniapps, Nginx reverse proxy.
+- HTTPS через Let’s Encrypt, HSTS в prod.
+- /health для проверки backend.
+- Логи с request_id и мониторинг Sentry.

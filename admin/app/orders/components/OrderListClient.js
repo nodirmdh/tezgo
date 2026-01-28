@@ -9,12 +9,20 @@ import { useLocale } from "../../components/LocaleProvider";
 
 const statusOptions = [
   "",
-  "accepted_by_system",
+  "created",
+  "pending_partner",
+  "accepted",
   "accepted_by_restaurant",
+  "preparing",
+  "ready",
   "ready_for_pickup",
+  "assigned",
   "picked_up",
+  "in_transit",
   "delivered",
-  "cancelled"
+  "cancelled",
+  "closed",
+  "rejected"
 ];
 
 const sortOptions = [
@@ -23,16 +31,6 @@ const sortOptions = [
   { value: "severity:desc", labelKey: "orders.sort.problematic" }
 ];
 
-const formatMinutes = (value) => (value === null || value === undefined ? "-" : `${value}m`);
-
-const renderSla = (summary) => {
-  if (!summary) return "-";
-  return `CS:${formatMinutes(summary.courierSearchMinutes)} Cook:${formatMinutes(
-    summary.cookingMinutes
-  )} Pick:${formatMinutes(summary.waitingPickupMinutes)} Del:${formatMinutes(
-    summary.deliveryMinutes
-  )}`;
-};
 
 export default function OrderListClient() {
   const { locale, t } = useLocale();
@@ -42,17 +40,55 @@ export default function OrderListClient() {
     status: "",
     outlet_id: "",
     courier_user_id: "",
+    fulfillment_type: "",
     date_from: "",
     date_to: "",
-    problematic: false,
+    hasProblem: false,
     sort: sortOptions[0].value,
     page: 1,
     limit: 10
   });
+  const [savedViews, setSavedViews] = useState([]);
+  const [viewName, setViewName] = useState("");
   const [data, setData] = useState({ items: [], page: 1, limit: 10, total: 0 });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [error, setError] = useState(null);
+  const [assigningOrder, setAssigningOrder] = useState(null);
+  const [assignCourierId, setAssignCourierId] = useState("");
+  const [cancelOrder, setCancelOrder] = useState(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelSource, setCancelSource] = useState("support");
+  const [cancelPenalty, setCancelPenalty] = useState("");
+  const exportParams = useMemo(() => {
+    return new URLSearchParams(
+      Object.entries(filters).reduce((acc, [key, value]) => {
+        if (value === "" || value === null || value === false) {
+          return acc;
+        }
+        acc[key] = String(value);
+        return acc;
+      }, {})
+    ).toString();
+  }, [filters]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("orders_saved_views_v1");
+    if (!stored) return;
+    try {
+      setSavedViews(JSON.parse(stored));
+    } catch {
+      setSavedViews([]);
+    }
+  }, []);
+
+  const persistViews = (views) => {
+    setSavedViews(views);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("orders_saved_views_v1", JSON.stringify(views));
+    }
+  };
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil((data.total || 0) / (data.limit || 10))),
@@ -71,7 +107,7 @@ export default function OrderListClient() {
         return acc;
       }, {})
     ).toString();
-    const result = await apiJson(`/api/orders/list?${params}`);
+    const result = await apiJson(`/admin/orders?${params}`);
     if (!result.ok) {
       setError(result.error);
       setLoading(false);
@@ -144,6 +180,21 @@ export default function OrderListClient() {
               })
             }
           />
+          <select
+            className="select"
+            value={filters.fulfillment_type}
+            onChange={(event) =>
+              setFilters({
+                ...filters,
+                fulfillment_type: event.target.value,
+                page: 1
+              })
+            }
+          >
+            <option value="">{t("orders.filters.allFulfillment")}</option>
+            <option value="delivery">{t("orders.filters.delivery")}</option>
+            <option value="pickup">{t("orders.filters.pickup")}</option>
+          </select>
           <input
             className="input"
             type="date"
@@ -176,13 +227,64 @@ export default function OrderListClient() {
           <label className="checkbox">
             <input
               type="checkbox"
-              checked={filters.problematic}
+              checked={filters.hasProblem}
               onChange={(event) =>
-                setFilters({ ...filters, problematic: event.target.checked, page: 1 })
+                setFilters({ ...filters, hasProblem: event.target.checked, page: 1 })
               }
             />
             {t("orders.filters.problematic")}
           </label>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => {
+              const name = viewName.trim();
+              if (!name) {
+                setToast({ type: "error", message: t("orders.views.nameRequired") });
+                return;
+              }
+              const next = [
+                ...savedViews.filter((view) => view.name !== name),
+                { name, filters: { ...filters, page: 1 } }
+              ];
+              persistViews(next);
+              setViewName("");
+              setToast({ type: "success", message: t("orders.views.saved") });
+            }}
+          >
+            {t("orders.views.save")}
+          </button>
+          <select
+            className="select"
+            value=""
+            onChange={(event) => {
+              const selected = savedViews.find((view) => view.name === event.target.value);
+              if (selected) {
+                setFilters({ ...selected.filters, page: 1 });
+              }
+            }}
+          >
+            <option value="">{t("orders.views.savedViews")}</option>
+            {savedViews.map((view) => (
+              <option key={view.name} value={view.name}>
+                {view.name}
+              </option>
+            ))}
+          </select>
+          <input
+            className="input"
+            placeholder={t("orders.views.namePlaceholder")}
+            value={viewName}
+            onChange={(event) => setViewName(event.target.value)}
+          />
+          <a
+            className="button ghost"
+            href={`/admin/orders/export?${exportParams}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t("orders.export")}
+          </a>
         </div>
       </div>
 
@@ -200,11 +302,11 @@ export default function OrderListClient() {
               <th>{t("orders.table.orderId")}</th>
               <th>{t("orders.table.date")}</th>
               <th>{t("orders.table.restaurant")}</th>
+              <th>{t("orders.table.partner")}</th>
+              <th>{t("orders.table.fulfillment")}</th>
               <th>{t("orders.table.amount")}</th>
               <th>{t("orders.table.status")}</th>
               <th>{t("orders.table.courier")}</th>
-              <th>{t("orders.table.phone")}</th>
-              <th>{t("orders.table.sla")}</th>
               <th>{t("orders.table.problems")}</th>
               <th>{t("orders.table.actions")}</th>
             </tr>
@@ -215,6 +317,8 @@ export default function OrderListClient() {
                 <td>{order.order_number}</td>
                 <td>{order.created_at}</td>
                 <td>{order.outlet_name || "-"}</td>
+                <td>{order.partner_name || "-"}</td>
+                <td>{order.fulfillment_type || "-"}</td>
                 <td>
                   {order.total_amount
                     ? `${order.total_amount} ${t("currency.sum")}`
@@ -224,28 +328,40 @@ export default function OrderListClient() {
                   <span className="badge">{translateStatus(locale, order.status)}</span>
                 </td>
                 <td>{order.courier_user_id ?? "-"}</td>
-                <td>{order.client_phone || "-"}</td>
-                <td className="mono">{renderSla(order.slaSummary)}</td>
                 <td>
-                  {order.problemsCount > 0 ? (
-                    <Link
-                      className={`badge severity ${order.overallSeverity}`}
-                      href={`/orders/${order.id}?tab=timeline`}
-                      title={order.primaryProblemTitle || ""}
-                    >
-                      {t(`orders.severity.${order.overallSeverity}`, {
-                        defaultValue: order.overallSeverity
-                      })}{" "}
-                      ({order.problemsCount})
-                    </Link>
+                  {order.problems_count > 0 ? (
+                    <span className="badge severity high">{order.problems_count}</span>
                   ) : (
                     <span className="badge">{t("orders.table.ok")}</span>
                   )}
                 </td>
                 <td>
-                  <Link className="action-link" href={`/orders/${order.id}`}>
-                    {t("common.view")}
-                  </Link>
+                  <div className="table-actions">
+                    <Link className="action-link" href={`/orders/${order.id}`}>
+                      {t("common.view")}
+                    </Link>
+                    <button
+                      className="action-link"
+                      type="button"
+                      onClick={() => {
+                        setAssigningOrder(order);
+                        setAssignCourierId(order.courier_user_id || "");
+                      }}
+                    >
+                      {t("orders.actions.assignCourier")}
+                    </button>
+                    <button
+                      className="action-link danger"
+                      type="button"
+                      onClick={() => {
+                        setCancelOrder(order);
+                        setCancelReason("");
+                        setCancelPenalty("");
+                      }}
+                    >
+                      {t("orders.actions.cancel")}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -280,6 +396,143 @@ export default function OrderListClient() {
           {t("common.next")}
         </button>
       </div>
+
+      {assigningOrder ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">{t("orders.actions.assignCourier")}</div>
+              <button
+                className="modal-close"
+                type="button"
+                onClick={() => setAssigningOrder(null)}
+              >
+                x
+              </button>
+            </div>
+            <div className="form-grid">
+              <div className="auth-field">
+                <label htmlFor="assignCourier">{t("orders.support.courierId")}</label>
+                <input
+                  id="assignCourier"
+                  className="input"
+                  value={assignCourierId}
+                  onChange={(event) => setAssignCourierId(event.target.value)}
+                />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button
+                className="button"
+                type="button"
+                onClick={async () => {
+                  const result = await apiJson(
+                    `/admin/orders/${assigningOrder.id}/assign-courier`,
+                    {
+                      method: "POST",
+                      body: JSON.stringify({ courierUserId: Number(assignCourierId) })
+                    }
+                  );
+                  if (!result.ok) {
+                    setToast({ type: "error", message: t(result.error) });
+                    return;
+                  }
+                  setToast({ type: "success", message: t("orders.support.reassigned") });
+                  setAssigningOrder(null);
+                  fetchOrders();
+                }}
+              >
+                {t("orders.actions.assignCourier")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {cancelOrder ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">{t("orders.actions.cancel")}</div>
+              <button
+                className="modal-close"
+                type="button"
+                onClick={() => setCancelOrder(null)}
+              >
+                x
+              </button>
+            </div>
+            <div className="form-grid">
+              <div className="auth-field">
+                <label htmlFor="cancelReason">{t("orders.support.cancelReason")}</label>
+                <input
+                  id="cancelReason"
+                  className="input"
+                  value={cancelReason}
+                  onChange={(event) => setCancelReason(event.target.value)}
+                />
+              </div>
+              <div className="form-row two">
+                <div className="auth-field">
+                  <label htmlFor="cancelSource">{t("orders.support.cancelSource")}</label>
+                  <select
+                    id="cancelSource"
+                    className="select"
+                    value={cancelSource}
+                    onChange={(event) => setCancelSource(event.target.value)}
+                  >
+                    <option value="support">{t("orders.support.cancelSourceSupport")}</option>
+                    <option value="client">{t("orders.support.cancelSourceClient")}</option>
+                    <option value="partner">{t("orders.support.cancelSourcePartner")}</option>
+                    <option value="system">{t("orders.support.cancelSourceSystem")}</option>
+                  </select>
+                </div>
+                <div className="auth-field">
+                  <label htmlFor="cancelPenalty">{t("orders.support.penaltyAmount")}</label>
+                  <input
+                    id="cancelPenalty"
+                    className="input"
+                    type="number"
+                    min="0"
+                    value={cancelPenalty}
+                    onChange={(event) => setCancelPenalty(event.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button
+                className="button danger"
+                type="button"
+                onClick={async () => {
+                  if (!cancelReason.trim()) {
+                    setToast({ type: "error", message: t("orders.support.cancelReasonRequired") });
+                    return;
+                  }
+                  const result = await apiJson(`/admin/orders/${cancelOrder.id}/cancel`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      reason: cancelReason.trim(),
+                      source: cancelSource,
+                      penalty_amount: cancelPenalty ? Number(cancelPenalty) : 0
+                    })
+                  });
+                  if (!result.ok) {
+                    setToast({ type: "error", message: t(result.error) });
+                    return;
+                  }
+                  setToast({ type: "success", message: t("orders.support.cancelled") });
+                  setCancelOrder(null);
+                  fetchOrders();
+                }}
+              >
+                {t("orders.actions.cancel")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
+

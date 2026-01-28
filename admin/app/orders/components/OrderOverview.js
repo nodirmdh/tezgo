@@ -322,6 +322,7 @@ export default function OrderOverview({ order, role, onOrderUpdated }) {
           <OrderActions
             orderId={order.id}
             role={role}
+            handoffCode={order.handoff_code}
             titleKey="orders.support.actionsTitle"
             onCancelled={onOrderUpdated}
           />

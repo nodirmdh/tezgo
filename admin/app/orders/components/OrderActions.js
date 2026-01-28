@@ -13,6 +13,7 @@ const canManageOrders = (role) =>
 export default function OrderActions({
   orderId,
   role,
+  handoffCode,
   titleKey = "orders.support.title",
   onCancelled
 }) {
@@ -20,6 +21,9 @@ export default function OrderActions({
   const { confirm, dialog } = useConfirm();
   const [toast, setToast] = useState(null);
   const [courierId, setCourierId] = useState("");
+  const [adminCancelReason, setAdminCancelReason] = useState("");
+  const [adminCancelSource, setAdminCancelSource] = useState("support");
+  const [adminPenalty, setAdminPenalty] = useState("");
   const [notifyMessage, setNotifyMessage] = useState("");
   const [compReason, setCompReason] = useState("");
   const [compMode, setCompMode] = useState("amount");
@@ -131,9 +135,9 @@ export default function OrderActions({
     if (!courierId) {
       return;
     }
-    const result = await apiJson(`/api/orders/${orderId}/reassign`, {
+    const result = await apiJson(`/admin/orders/${orderId}/assign-courier`, {
       method: "POST",
-      body: JSON.stringify({ courier_user_id: Number(courierId) })
+      body: JSON.stringify({ courierUserId: Number(courierId) })
     });
     if (!result.ok) {
       setToast({ type: "error", message: t(result.error) });
@@ -141,6 +145,29 @@ export default function OrderActions({
     }
     setToast({ type: "success", message: t("orders.support.reassigned") });
     setCourierId("");
+  };
+
+  const handleAdminCancel = async () => {
+    if (!adminCancelReason.trim()) {
+      setToast({ type: "error", message: t("orders.support.cancelReasonRequired") });
+      return;
+    }
+    const result = await apiJson(`/admin/orders/${orderId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: adminCancelReason.trim(),
+        source: adminCancelSource,
+        penalty_amount: adminPenalty ? Number(adminPenalty) : 0
+      })
+    });
+    if (!result.ok) {
+      setToast({ type: "error", message: t(result.error) });
+      return;
+    }
+    setToast({ type: "success", message: t("orders.support.cancelled") });
+    setAdminCancelReason("");
+    setAdminPenalty("");
+    onCancelled?.(result.data);
   };
 
   const handleNotify = async () => {
@@ -218,9 +245,59 @@ export default function OrderActions({
         <div className="empty-state">{t("orders.support.noAccess")}</div>
       ) : (
         <div className="action-grid">
+          {handoffCode ? (
+            <div className="banner">
+              {t("orders.support.handoffCode")}: <strong>{handoffCode}</strong>
+            </div>
+          ) : null}
           <button className="button danger" type="button" onClick={openCancelModal}>
             {t("orders.support.cancelOrder")}
           </button>
+          <div className="form-grid">
+            <div className="auth-field">
+              <label htmlFor="adminCancelReason">{t("orders.support.cancelReason")}</label>
+              <input
+                id="adminCancelReason"
+                className="input"
+                value={adminCancelReason}
+                onChange={(event) => setAdminCancelReason(event.target.value)}
+                placeholder={t("orders.support.cancelReasonPlaceholder")}
+              />
+            </div>
+            <div className="form-row two">
+              <div className="auth-field">
+                <label htmlFor="adminCancelSource">{t("orders.support.cancelSource")}</label>
+                <select
+                  id="adminCancelSource"
+                  className="select"
+                  value={adminCancelSource}
+                  onChange={(event) => setAdminCancelSource(event.target.value)}
+                >
+                  <option value="support">{t("orders.support.cancelSourceSupport")}</option>
+                  <option value="client">{t("orders.support.cancelSourceClient")}</option>
+                  <option value="partner">{t("orders.support.cancelSourcePartner")}</option>
+                  <option value="system">{t("orders.support.cancelSourceSystem")}</option>
+                </select>
+              </div>
+              <div className="auth-field">
+                <label htmlFor="adminPenalty">{t("orders.support.penaltyAmount")}</label>
+                <input
+                  id="adminPenalty"
+                  className="input"
+                  type="number"
+                  min="0"
+                  value={adminPenalty}
+                  onChange={(event) => setAdminPenalty(event.target.value)}
+                  placeholder="0"
+                />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="button danger" type="button" onClick={handleAdminCancel}>
+                {t("orders.support.cancelAdmin")}
+              </button>
+            </div>
+          </div>
           <div className="form-row two">
             <input
               className="input"
@@ -314,7 +391,7 @@ export default function OrderActions({
                 type="button"
                 onClick={() => setCancelOpen(false)}
               >
-                ×
+                x
               </button>
             </div>
 
@@ -420,3 +497,4 @@ export default function OrderActions({
     </section>
   );
 }
+

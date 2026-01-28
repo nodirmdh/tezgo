@@ -7,6 +7,8 @@ import { apiJson } from "../../../lib/api/client";
 import OrderTabs from "./OrderTabs";
 import OrderOverview from "./OrderOverview";
 import OrderTimeline from "./OrderTimeline";
+import OrderProblemFlags from "./OrderProblemFlags";
+import OrderAuditLog from "./OrderAuditLog";
 import { translateStatus } from "../../../lib/i18n";
 import { useLocale } from "../../components/LocaleProvider";
 import { useAuth } from "../../components/AuthProvider";
@@ -90,6 +92,8 @@ export default function OrderProfileClient({ orderId, initialOrder }) {
           onNoteAdded={loadEvents}
         />
       ) : null}
+      {activeTab === "flags" ? <OrderProblemFlags orderId={orderId} /> : null}
+      {activeTab === "audit" ? <OrderAuditLog orderId={orderId} /> : null}
     </div>
   );
 }

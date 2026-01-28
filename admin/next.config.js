@@ -1,6 +1,13 @@
+const { withSentryConfig } = require("@sentry/nextjs");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true
+  reactStrictMode: true,
+  output: "standalone"
 };
 
-module.exports = nextConfig;
+const sentryOptions = {
+  silent: true
+};
+
+module.exports = withSentryConfig(nextConfig, sentryOptions);

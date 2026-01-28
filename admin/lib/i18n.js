@@ -25,7 +25,10 @@ const translations = {
       points: "Точки партнёра",
       outlets: "Точки",
       couriers: "Курьеры",
+      courierLeaderboard: "Топ курьеров",
       orders: "Заказы",
+      problemFlags: "Проблемные заказы",
+      payoutReport: "Отчет по выплатам",
       finance: "Финансы",
       promos: "Промокоды",
       audit: "Аудит"
@@ -52,6 +55,10 @@ const translations = {
       view: "Просмотр",
       yes: "Да",
       no: "Нет"
+    },
+    audit: {
+      title: "Аудит",
+      empty: "Записей пока нет"
     },
     auth: {
       title: "Вход в админку",
@@ -85,6 +92,14 @@ const translations = {
       title: "Дашборд",
       description: "Ключевые показатели и последние события платформы.",
       recentOrders: "Последние заказы",
+      activeOrders: "Активные заказы",
+      noCourier: "Заказы без курьера",
+      ordersToday: "Заказы сегодня",
+      cancelledToday: "Отменено сегодня",
+      topCouriers: "Топ курьеров",
+      delivered: "Доставок",
+      avgDelivery: "Среднее время",
+      penalties: "Штрафы",
       table: {
         orderId: "Номер",
         outlet: "Заведение",
@@ -250,6 +265,14 @@ const translations = {
       paused: "Пауза",
       pending: "В ожидании",
       completed: "Завершен",
+      created: "Оформлен",
+      pending_partner: "Ожидает ресторана",
+      accepted: "Принят",
+      preparing: "Готовится",
+      ready: "Готов",
+      handed_over: "Передан",
+      closed: "Закрыт",
+      rejected: "Отклонен",
       accepted_by_system: "Принят системой",
       accepted_by_restaurant: "Принят рестораном",
       ready_for_pickup: "Готов к выдаче",
@@ -287,6 +310,7 @@ const translations = {
       activity: "Активность",
       audit: "Аудит",
       timeline: "Таймлайн",
+      flags: "Проблемы",
       addresses: "Адреса",
       promos: "Промокоды",
       notes: "Заметки",
@@ -295,6 +319,7 @@ const translations = {
       campaigns: "Кампании"
     },
     orders: {
+      export: "Экспорт CSV",
       profile: {
         title: "Профиль заказа",
         description: "Проверьте доступ и идентификатор заказа.",
@@ -307,6 +332,9 @@ const translations = {
         allStatuses: "Все статусы",
         outletId: "Outlet ID",
         courierId: "Courier ID",
+        allFulfillment: "Все типы",
+        delivery: "Доставка",
+        pickup: "Самовывоз",
         problematic: "Проблемные"
       },
       sort: {
@@ -318,6 +346,8 @@ const translations = {
         orderId: "Номер заказа",
         date: "Дата",
         restaurant: "Ресторан",
+        partner: "Партнер",
+        fulfillment: "Тип",
         amount: "Сумма",
         status: "Статус",
         courier: "Курьер",
@@ -329,7 +359,16 @@ const translations = {
         client: "Клиент"
       },
       actions: {
-        open: "Открыть заказ"
+        open: "Открыть заказ",
+        assignCourier: "Назначить курьера",
+        cancel: "Отменить"
+      },
+      views: {
+        save: "Сохранить вид",
+        saved: "Представление сохранено",
+        savedViews: "Сохраненные представления",
+        namePlaceholder: "Название вида",
+        nameRequired: "Введите название вида"
       },
       severity: {
         high: "Высокий",
@@ -349,6 +388,16 @@ const translations = {
         title: "Действия поддержки",
         actionsTitle: "Действия поддержки",
         cancelReason: "Причина отмены",
+        cancelReasonRequired: "Укажите причину отмены",
+        cancelReasonPlaceholder: "Почему отменяем?",
+        cancelSource: "Источник отмены",
+        cancelSourceSupport: "Поддержка",
+        cancelSourceClient: "Клиент",
+        cancelSourcePartner: "Партнер",
+        cancelSourceSystem: "Система",
+        cancelAdmin: "Отменить (операционка)",
+        penaltyAmount: "Штраф (сум)",
+        handoffCode: "Код выдачи",
         cancelOrder: "Отменить заказ",
         reassignCourier: "Назначить курьера",
         courierId: "ID курьера",
@@ -797,6 +846,14 @@ const translations = {
         note: "Заметка",
         placeholder: "Добавить заметку...",
         support: "саппорт"
+      },
+      leaderboard: {
+        title: "Топ курьеров",
+        description: "Рейтинг по доставкам и качеству.",
+        delivered: "Доставок",
+        cancelled: "Отмен",
+        avgTime: "Среднее время",
+        penalties: "Штрафы"
       }
     },
     partners: {
@@ -887,6 +944,18 @@ const translations = {
           commission: "Комиссии платформы",
           payouts: "Выплаты партнеру"
         }
+      },
+      payouts: {
+        title: "Отчет по выплатам",
+        description: "Агрегаты по партнерам без реальных выплат.",
+        export: "Экспорт CSV",
+        partner: "Партнер",
+        foodTotal: "Сумма блюд",
+        commission: "Комиссия",
+        partnerNet: "К выплате",
+        serviceFee: "Сервисный сбор",
+        status: "Статус",
+        hold: "Hold"
       }
     },
     points: {
@@ -1395,6 +1464,34 @@ const translations = {
       sum: "сум"
     }
   },
+    flags: {
+      title: "Проблемные флаги",
+      description: "Автоматические флаги проблем по заказам.",
+      empty: "Нет активных флагов",
+      resolve: "Закрыть",
+      resolved: "Закрыто",
+      filters: {
+        allSeverity: "Все уровни",
+        allTypes: "Все типы",
+        active: "Активные",
+        resolved: "Закрытые"
+      },
+      table: {
+        order: "Заказ",
+        type: "Тип",
+        severity: "Серьезность",
+        created: "Создан",
+        actions: "Действия"
+      },
+      types: {
+        partner_not_responding: "Партнер не отвечает",
+        cooking_delay: "Задержка готовки",
+        no_courier_assigned: "Нет курьера",
+        courier_delay: "Задержка курьера",
+        frequent_cancellations: "Частые отмены",
+        handoff_code_failed_attempts: "Ошибки кода выдачи"
+      }
+    },
   uz: {
     app: {
       title: "Kungrad Admin",
@@ -1411,7 +1508,10 @@ const translations = {
       points: "Hamkor nuqtalari",
       outlets: "Shoxobchalar",
       couriers: "Kuryerlar",
+      courierLeaderboard: "Kuryerlar reytingi",
       orders: "Buyurtmalar",
+      problemFlags: "Muammoli buyurtmalar",
+      payoutReport: "To'lovlar hisoboti",
       finance: "Moliya",
       promos: "Promo kodlar",
       audit: "Audit"
@@ -1438,6 +1538,10 @@ const translations = {
       view: "Ko'rish",
       yes: "Ha",
       no: "Yo'q"
+    },
+    audit: {
+      title: "Audit",
+      empty: "Hozircha yozuvlar yo'q"
     },
     auth: {
       title: "Admin panelga kirish",
@@ -1471,6 +1575,14 @@ const translations = {
       title: "Dashboard",
       description: "Asosiy ko'rsatkichlar va so'nggi voqealar.",
       recentOrders: "So'nggi buyurtmalar",
+      activeOrders: "Faol buyurtmalar",
+      noCourier: "Kuryer biriktirilmagan",
+      ordersToday: "Bugungi buyurtmalar",
+      cancelledToday: "Bugun bekor qilinganlar",
+      topCouriers: "Top kuryerlar",
+      delivered: "Yetkazildi",
+      avgDelivery: "O'rtacha vaqt",
+      penalties: "Jarimalar",
       table: {
         orderId: "Raqam",
         outlet: "Shoxobcha",
@@ -1492,6 +1604,34 @@ const translations = {
         created: "Yaratilgan",
         actions: "Amallar",
         view: "Ochish"
+      }
+    },
+    flags: {
+      title: "Muammo flaglari",
+      description: "Buyurtmalar bo'yicha avtomatik muammo flaglari.",
+      empty: "Faol flaglar yo'q",
+      resolve: "Yopish",
+      resolved: "Yopilgan",
+      filters: {
+        allSeverity: "Barcha darajalar",
+        allTypes: "Barcha turlar",
+        active: "Faol",
+        resolved: "Yopilgan"
+      },
+      table: {
+        order: "Buyurtma",
+        type: "Tur",
+        severity: "Daraja",
+        created: "Yaratilgan",
+        actions: "Amallar"
+      },
+      types: {
+        partner_not_responding: "Hamkor javob bermayapti",
+        cooking_delay: "Tayyorlash kechikishi",
+        no_courier_assigned: "Kuryer biriktirilmagan",
+        courier_delay: "Kuryer kechikishi",
+        frequent_cancellations: "Ko'p bekor qilish",
+        handoff_code_failed_attempts: "Kod xatolari"
       }
     },
     pages: {
@@ -1666,6 +1806,14 @@ const translations = {
       paused: "Pauza",
       pending: "Kutilmoqda",
       completed: "Yakunlangan",
+      created: "Yaratildi",
+      pending_partner: "Restoranni kutmoqda",
+      accepted: "Qabul qilindi",
+      preparing: "Tayyorlanmoqda",
+      ready: "Tayyor",
+      handed_over: "Topshirildi",
+      closed: "Yopilgan",
+      rejected: "Rad etilgan",
       accepted_by_system: "Tizim qabul qildi",
       accepted_by_restaurant: "Restoran qabul qildi",
       ready_for_pickup: "Olib ketishga tayyor",
@@ -1703,6 +1851,7 @@ const translations = {
       activity: "Faollik",
       audit: "Audit",
       timeline: "Vaqt jadvali",
+      flags: "Muammolar",
       addresses: "Manzillar",
       promos: "Promolar",
       notes: "Izohlar",
@@ -1711,6 +1860,7 @@ const translations = {
       campaigns: "Kampaniyalar"
     },
     orders: {
+      export: "CSV eksport",
       profile: {
         title: "Buyurtma profili",
         description: "Buyurtma tafsilotlari, tarix va bog'liq ma'lumotlar.",
@@ -1723,6 +1873,9 @@ const translations = {
         allStatuses: "Barcha holatlar",
         outletId: "Shoxobcha ID",
         courierId: "Kuryer ID",
+        allFulfillment: "Barcha turlar",
+        delivery: "Yetkazib berish",
+        pickup: "Olib ketish",
         problematic: "Muammoli buyurtmalar"
       },
       sort: {
@@ -1734,6 +1887,8 @@ const translations = {
         orderId: "Buyurtma ID",
         date: "Sana",
         restaurant: "Restoran",
+        partner: "Hamkor",
+        fulfillment: "Turi",
         amount: "Summa",
         status: "Holat",
         courier: "Kuryer",
@@ -1745,7 +1900,16 @@ const translations = {
         client: "Mijoz"
       },
       actions: {
-        open: "Buyurtmani ochish"
+        open: "Buyurtmani ochish",
+        assignCourier: "Kuryer biriktirish",
+        cancel: "Bekor qilish"
+      },
+      views: {
+        save: "Ko'rinishni saqlash",
+        saved: "Ko'rinish saqlandi",
+        savedViews: "Saqlangan ko'rinishlar",
+        namePlaceholder: "Ko'rinish nomi",
+        nameRequired: "Ko'rinish nomini kiriting"
       },
       severity: {
         high: "Yuqori",
@@ -1765,6 +1929,16 @@ const translations = {
         title: "Qo'llab-quvvatlash amallari",
         actionsTitle: "Qo'llab-quvvatlash amallari",
         cancelReason: "Bekor qilish sababi",
+        cancelReasonRequired: "Bekor qilish sababini kiriting",
+        cancelReasonPlaceholder: "Nega bekor qilinyapti?",
+        cancelSource: "Bekor qilish manbasi",
+        cancelSourceSupport: "Qo'llab-quvvatlash",
+        cancelSourceClient: "Mijoz",
+        cancelSourcePartner: "Hamkor",
+        cancelSourceSystem: "Tizim",
+        cancelAdmin: "Operatsion bekor qilish",
+        penaltyAmount: "Jarima (so'm)",
+        handoffCode: "Topshirish kodi",
         cancelOrder: "Buyurtmani bekor qilish",
         reassignCourier: "Kuryerni qayta biriktirish",
         courierId: "Kuryer ID",
@@ -2182,6 +2356,14 @@ const translations = {
         note: "Izoh",
         placeholder: "Izoh yozing...",
         support: "Qo'llab-quvvatlash izohi"
+      },
+      leaderboard: {
+        title: "Top kuryerlar",
+        description: "Yetkazish va sifat bo'yicha reyting.",
+        delivered: "Yetkazildi",
+        cancelled: "Bekor",
+        avgTime: "O'rtacha vaqt",
+        penalties: "Jarimalar"
       }
     },
     partners: {
@@ -2272,6 +2454,18 @@ const translations = {
           commission: "Platforma komissiyasi",
           payouts: "Hamkorga to'lovlar"
         }
+      },
+      payouts: {
+        title: "To'lovlar hisobot",
+        description: "Hamkorlar bo'yicha agregatlar (real to'lovsiz).",
+        export: "CSV eksport",
+        partner: "Hamkor",
+        foodTotal: "Taomlar summasi",
+        commission: "Komissiya",
+        partnerNet: "Hamkorga",
+        serviceFee: "Servis to'lovi",
+        status: "Holat",
+        hold: "Ushlab turish"
       }
     },
     points: {
@@ -2796,7 +2990,10 @@ const translations = {
       points: "Partnyor noktalari",
       outlets: "Noktalár",
       couriers: "Kuryerler",
+      courierLeaderboard: "Kuryerler reytingi",
       orders: "Buyırtpalar",
+      problemFlags: "Problemalı buyırtpalar",
+      payoutReport: "Tólem esabatı",
       finance: "Finans",
       promos: "Promokodlar",
       audit: "Audit"
@@ -2823,6 +3020,30 @@ const translations = {
       view: "Kóriw",
       yes: "Áwa",
       no: "Jo'q"
+    },
+    confirm: {
+      title: "Ámildi tastıyqlaw",
+      confirm: "Tastıyqlaw",
+      cancel: "Biykar etiw"
+    },
+    tabs: {
+      overview: "Kóriw",
+      orders: "Buyırtpalar",
+      finance: "Finans",
+      activity: "Bel sende",
+      audit: "Audit",
+      timeline: "Taymline",
+      flags: "Problema",
+      addresses: "Adresler",
+      promos: "Promokodlar",
+      notes: "Izohlar",
+      outlets: "Noktalár",
+      menu: "Menyu / Ónimler",
+      campaigns: "Kampaniyalar"
+    },
+    audit: {
+      title: "Audit",
+      empty: "Jazıw joq"
     },
     auth: {
       title: "Admin panelge kiriw",
@@ -2856,6 +3077,14 @@ const translations = {
       title: "Dashboard",
       description: "Negizgi kórsetkishler hám sońǵı waqıalar.",
       recentOrders: "Sońǵı buyırtpalar",
+      activeOrders: "Faol buyırtpalar",
+      noCourier: "Kuryersiz buyırtpalar",
+      ordersToday: "Búgingi buyırtpalar",
+      cancelledToday: "Búgin biykar etilgen",
+      topCouriers: "Top kuryerler",
+      delivered: "Jetkizilgen",
+      avgDelivery: "Ortalasha waqıt",
+      penalties: "Jarımalar",
       table: {
         orderId: "Nomer",
         outlet: "Nokta",
@@ -2877,6 +3106,34 @@ const translations = {
         created: "Jaralǵan",
         actions: "Ámeller",
         view: "Aşıw"
+      }
+    },
+    flags: {
+      title: "Problema flagları",
+      description: "Buyırtpalar boyınsha avtomat flaglar.",
+      empty: "Faol flag joq",
+      resolve: "Jabıw",
+      resolved: "Jabılǵan",
+      filters: {
+        allSeverity: "Bársha darajalar",
+        allTypes: "Bársha túrler",
+        active: "Faol",
+        resolved: "Jabılǵan"
+      },
+      table: {
+        order: "Buyırtpa",
+        type: "Túr",
+        severity: "Daraja",
+        created: "Jaralǵan",
+        actions: "Ámeller"
+      },
+      types: {
+        partner_not_responding: "Hamkar jawap bermeydi",
+        cooking_delay: "Tayarlaw kechigiwi",
+        no_courier_assigned: "Kuryer biriktirilmegen",
+        courier_delay: "Kuryer kechigiwi",
+        frequent_cancellations: "Kóp biykar etiw",
+        handoff_code_failed_attempts: "Kod qáteleri"
       }
     },
     pages: {
@@ -3019,6 +3276,99 @@ const translations = {
       }
     },
     orders: {
+      export: "CSV eksport",
+      profile: {
+        title: "Buyırtpa profili",
+        description: "Buyırtpa maǵlıwmatın tekseriń.",
+        eyebrow: "Buyırtpa profili",
+        idLabel: "ID"
+      },
+      filters: {
+        searchOrder: "OrderId boyınsha izlew",
+        phone: "Klient telefonı",
+        allStatuses: "Bárlıq haller",
+        outletId: "Outlet ID",
+        courierId: "Courier ID",
+        allFulfillment: "Bárlıq túrler",
+        delivery: "Jetkiziw",
+        pickup: "Álib alıw",
+        problematic: "Problemalı"
+      },
+      sort: {
+        newest: "Jańa aldın",
+        oldest: "Eski aldın",
+        problematic: "Problemalı aldın"
+      },
+      table: {
+        orderId: "Buyırtpa nomeri",
+        date: "Sána",
+        restaurant: "Restoran",
+        partner: "Partnyor",
+        fulfillment: "Túr",
+        amount: "Somma",
+        status: "Hálat",
+        courier: "Kuryer",
+        phone: "Telefon",
+        sla: "SLA",
+        problems: "Problema",
+        actions: "Ámeller",
+        ok: "ok",
+        client: "Klient"
+      },
+      actions: {
+        open: "Buyırtpanı aşıw",
+        assignCourier: "Kuryer taǵayınlaw",
+        cancel: "Biykar etiw"
+      },
+      views: {
+        save: "Kóriwdi saqtaw",
+        saved: "Kóriw saqtaldı",
+        savedViews: "Saqtalǵan kóriwler",
+        namePlaceholder: "Kóriw atı",
+        nameRequired: "Kóriw atın kiriń"
+      },
+      severity: {
+        high: "Joqarı",
+        medium: "Orta",
+        low: "Tómengi"
+      },
+      overview: {
+        details: "Buyırtpa detali",
+        related: "Baylanıslı obyektler",
+        client: "Klient",
+        courier: "Kuryer",
+        restaurant: "Restoran",
+        address: "Adres",
+        created: "Jaralǵan"
+      },
+      support: {
+        title: "Qollap-quwatlaw ámelleri",
+        actionsTitle: "Qollap-quwatlaw ámelleri",
+        cancelReason: "Biykar etiw sebebi",
+        cancelReasonRequired: "Biykar etiw sebebin kórsetiń",
+        cancelReasonPlaceholder: "Nelixten biykar etiw?",
+        cancelSource: "Biykar etiw qaydan",
+        cancelSourceSupport: "Qollap-quwatlaw",
+        cancelSourceClient: "Klient",
+        cancelSourcePartner: "Partnyor",
+        cancelSourceSystem: "Sistema",
+        cancelAdmin: "Biykar etiw (operaciya)",
+        penaltyAmount: "Jarima (sum)",
+        handoffCode: "Beriliw kodi",
+        cancelOrder: "Buyırtpanı biykar etiw",
+        reassignCourier: "Kuryer taǵayınlaw",
+        courierId: "Kuryer ID",
+        notifyClient: "Klientke habar jiberiw",
+        notifyPlaceholder: "Habardıń teksti",
+        notifyRequired: "Habardıń tekstin kiritıń",
+        notified: "Habar jiberildi",
+        resendRestaurant: "Restoranga qayta jiberiw",
+        resendConfirm: "Buyırtpanı restoranga qayta jiberesiz be?",
+        resendOk: "Buyırtpa qayta jiberildi",
+        noAccess: "Ruxsat jetispeydi",
+        cancelled: "Buyırtpa biykar etildi",
+        reassigned: "Kuryer taǵayınlandı"
+      },
       cancellation: {
         title: "Buyırtpanı biykar etiw",
         chooseReason: "Sebebin saylań",
@@ -3124,6 +3474,30 @@ const translations = {
         empty: "Jazıw joq"
       }
     },
+    partners: {
+      payouts: {
+        title: "Tólem esabatı",
+        export: "CSV eksport",
+        partner: "Partnyor",
+        foodTotal: "Taomlar somması",
+        commission: "Komissiya",
+        partnerNet: "Partnyor esabı",
+        serviceFee: "Servis jıynı",
+        status: "Status",
+        hold: "Tólemdi toqtatıw"
+      }
+    },
+    couriers: {
+      table: {
+        courier: "Kuryer"
+      },
+      leaderboard: {
+        delivered: "Jetkizilgen",
+        cancelled: "Biykar etilgen",
+        avgTime: "Ortalasha waqıt",
+        penalties: "Jarımalar"
+      }
+    },
     outlets: {
       menu: {
         profile: {
@@ -3211,6 +3585,14 @@ const translations = {
       paused: "Pauza",
       pending: "Kútilmekte",
       completed: "Tamamlandı",
+      created: "Jaralǵan",
+      pending_partner: "Restorandı kútip tur",
+      accepted: "Qabıllandı",
+      preparing: "Dáyarlanıwda",
+      ready: "Dáyın",
+      handed_over: "Tapshırıldı",
+      closed: "Jabıldı",
+      rejected: "Bas tartıldı",
       accepted_by_system: "Sistema qabılladı",
       accepted_by_restaurant: "Restoran qabılladı",
       ready_for_pickup: "Alıwǵa tayın",
@@ -3258,7 +3640,10 @@ const translations = {
       points: "Partner points",
       outlets: "Outlets",
       couriers: "Couriers",
+      courierLeaderboard: "Courier leaderboard",
       orders: "Orders",
+      problemFlags: "Problem flags",
+      payoutReport: "Payout report",
       finance: "Finance",
       promos: "Promos",
       audit: "Audit"
@@ -3285,6 +3670,10 @@ const translations = {
       view: "View",
       yes: "Yes",
       no: "No"
+    },
+    audit: {
+      title: "Audit",
+      empty: "No entries yet"
     },
     auth: {
       title: "Admin login",
@@ -3318,6 +3707,14 @@ const translations = {
       title: "Dashboard",
       description: "Key metrics and recent platform activity.",
       recentOrders: "Recent orders",
+      activeOrders: "Active orders",
+      noCourier: "Orders without courier",
+      ordersToday: "Orders today",
+      cancelledToday: "Cancelled today",
+      topCouriers: "Top couriers",
+      delivered: "Delivered",
+      avgDelivery: "Avg time",
+      penalties: "Penalties",
       table: {
         orderId: "Order",
         outlet: "Outlet",
@@ -3339,6 +3736,34 @@ const translations = {
         created: "Created",
         actions: "Actions",
         view: "View"
+      }
+    },
+    flags: {
+      title: "Problem flags",
+      description: "Automatic problem flags for orders.",
+      empty: "No active flags",
+      resolve: "Resolve",
+      resolved: "Resolved",
+      filters: {
+        allSeverity: "All severities",
+        allTypes: "All types",
+        active: "Active",
+        resolved: "Resolved"
+      },
+      table: {
+        order: "Order",
+        type: "Type",
+        severity: "Severity",
+        created: "Created",
+        actions: "Actions"
+      },
+      types: {
+        partner_not_responding: "Partner not responding",
+        cooking_delay: "Cooking delay",
+        no_courier_assigned: "No courier assigned",
+        courier_delay: "Courier delay",
+        frequent_cancellations: "Frequent cancellations",
+        handoff_code_failed_attempts: "Handoff code attempts"
       }
     },
     pages: {
@@ -3513,6 +3938,14 @@ const translations = {
       paused: "Paused",
       pending: "Pending",
       completed: "Completed",
+      created: "Created",
+      pending_partner: "Waiting for restaurant",
+      accepted: "Accepted",
+      preparing: "Preparing",
+      ready: "Ready",
+      handed_over: "Handed over",
+      closed: "Closed",
+      rejected: "Rejected",
       accepted_by_system: "Accepted by system",
       accepted_by_restaurant: "Accepted by restaurant",
       ready_for_pickup: "Ready for pickup",

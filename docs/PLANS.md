@@ -21,13 +21,17 @@
 - Кампании/сеты: CRUD, валидации, статусы, дублирование, заказы по кампании, audit.
 - Order pricing/ledger: promo/campaign расчет, refunds/compensations, order_adjustments, audit.
 - Меню точек партнёра: категории/позиции (menu_categories/menu_items), анти-дубли, CRUD, доступность.
+- Partner Orders: статусы, прием/отклонение, ready, выдача по коду, snapshot финансов.
+- Operational Admin: dashboard, problem flags, быстрые действия, leaderboard курьеров, payout report, экспорт CSV.
 
 ## 4. Mini App
 - Client → Restaurant → Courier.
 - Restaurant: управление меню по точкам (категории/позиции).
+- Restaurant: операционка по заказам (accept/reject/ready/handoff).
 
 ## 4. Admin
 - Меню точек партнёра: просмотр и правки позиций (цена/доступность/категория).
 
 ## 5. Финализация
 - Финансы, промокоды, OpenAPI, деплой.
+- Docker/Nginx, HTTPS, мониторинг, бэкапы, hardening backend.

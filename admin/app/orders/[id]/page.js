@@ -7,7 +7,7 @@ import { t } from "../../../lib/i18n";
 
 export default async function OrderProfilePage({ params }) {
   const locale = getServerLocale();
-  const response = await apiRequest(`/api/orders/${params.id}/details`);
+  const response = await apiRequest(`/admin/orders/${params.id}`);
   if (!response.ok) {
     return (
       <main>

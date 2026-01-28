@@ -78,10 +78,16 @@
 - restaurant_commission, restaurant_penalty, courier_penalty
 - total_weight_grams, distance_meters
 - created_at, accepted_at, ready_at, picked_up_at, delivered_at, cancelled_at
+- courier_assigned_at, courier_picked_up_at, courier_delivered_at
+- delivery_status, delivery_fee, delivery_provider
+- cancel_source, cancel_reason, penalty_amount
 - prep_eta_minutes, pickup_code_hash, pickup_attempts
 - handoff_code_hash, handoff_code_encrypted, handoff_code_last4
-- handoff_code_expires_at, handoff_code_used_at
-- fulfillment_type, food_total, commission_from_food, partner_net
+- handoff_code_expires_at, handoff_code_used_at, handoff_failed_attempts
+- fulfillment_type, pickup_time, utensils_count, napkins_count
+- customer_comment, partner_comment, reject_reason
+- handed_over_at, closed_at
+- food_total, commission_percent_snapshot, commission_from_food, partner_net
 
 ## Cancel Reasons
 - code, group_code
@@ -128,3 +134,14 @@
 - id, order_id, kind, amount
 - reason_code, comment
 - created_by_role, created_by_tg_id, created_at
+
+## Audit Log
+- id, entity_type, entity_id, action
+- actor_user_id, actor_role, request_id
+- before_json, after_json, created_at
+
+## Problem Flags
+- id, order_id
+- type, severity, description
+- created_at, resolved_at, resolved_by
+- meta_json

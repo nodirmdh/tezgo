@@ -14,7 +14,12 @@
     "cors": "2.8.5",
     "express": "4.19.2",
     "express-rate-limit": "7.4.1",
+    "helmet": "7.1.0",
     "jsonwebtoken": "9.0.2",
+    "pino": "9.4.0",
+    "pino-http": "9.0.0",
+    "pino-pretty": "10.3.1",
+    "@sentry/node": "8.35.0",
     "tezgo-root": "file:..",
     "zod": "3.23.8"
   }

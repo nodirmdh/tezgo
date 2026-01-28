@@ -9,10 +9,34 @@ const statusLabels = {
   rejected: "Отклонено"
 };
 
+const orderStatusLabels = {
+  created: "Новый",
+  pending_partner: "Ожидает решения",
+  accepted_by_system: "Новый",
+  accepted: "В работе",
+  preparing: "Готовится",
+  accepted_by_restaurant: "Принят",
+  ready: "Готов",
+  ready_for_pickup: "Готов",
+  handed_over: "Выдан",
+  picked_up: "Передан курьеру",
+  delivered: "Завершён",
+  closed: "Закрыт",
+  rejected: "Отклонён",
+  cancelled: "Отменён"
+};
+
 const tabs = [
   { id: "requisites", label: "Реквизиты" },
   { id: "orders", label: "Заказы" },
   { id: "menu", label: "Меню" }
+];
+
+const orderTabs = [
+  { id: "new", label: "Новые" },
+  { id: "in_progress", label: "В работе" },
+  { id: "ready", label: "Готово" },
+  { id: "history", label: "История" }
 ];
 
 const emptyItem = {
@@ -28,9 +52,18 @@ const emptyItem = {
 export default function RestaurantPage() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("requisites");
+  const [ordersTab, setOrdersTab] = useState("new");
   const [partner, setPartner] = useState(null);
   const [form, setForm] = useState({});
   const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const [handoffCode, setHandoffCode] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [details, setDetails] = useState(null);
+  const [activeOrder, setActiveOrder] = useState(null);
   const [points, setPoints] = useState([]);
   const [pointId, setPointId] = useState("");
   const [categories, setCategories] = useState([]);
@@ -60,13 +93,20 @@ export default function RestaurantPage() {
     setForm(result.data);
   };
 
-  const loadOrders = async () => {
-    const result = await apiJson("/partner/orders");
+  const loadOrders = async (status = ordersTab) => {
+    setOrdersLoading(true);
+    const params = new URLSearchParams({});
+    if (status) {
+      params.set("status", status);
+    }
+    const result = await apiJson(`/partner/orders?${params.toString()}`);
     if (!result.ok) {
       setError(result.error);
+      setOrdersLoading(false);
       return;
     }
     setOrders(result.data.items || []);
+    setOrdersLoading(false);
   };
 
   const loadPoints = async () => {
@@ -107,9 +147,13 @@ export default function RestaurantPage() {
 
   useEffect(() => {
     loadPartner();
-    loadOrders();
     loadPoints();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "orders") return;
+    loadOrders();
+  }, [activeTab, ordersTab]);
 
   useEffect(() => {
     if (!pointId) return;
@@ -261,6 +305,78 @@ export default function RestaurantPage() {
       )
     : false;
 
+  const openReject = (order) => {
+    setActiveOrder(order);
+    setRejectReason("");
+    setRejectOpen(true);
+  };
+
+  const openHandoff = (order) => {
+    setActiveOrder(order);
+    setHandoffCode("");
+    setHandoffOpen(true);
+  };
+
+  const openDetails = async (order) => {
+    setActiveOrder(order);
+    const result = await apiJson(`/partner/orders/${order.id}`);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setDetails(result.data);
+    setDetailsOpen(true);
+  };
+
+  const handleAccept = async (order) => {
+    const result = await apiJson(`/partner/orders/${order.id}/accept`, { method: "POST" });
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    loadOrders();
+  };
+
+  const handleReject = async () => {
+    if (!activeOrder) return;
+    const result = await apiJson(`/partner/orders/${activeOrder.id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason: rejectReason })
+    });
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setRejectOpen(false);
+    loadOrders();
+  };
+
+  const handleReady = async (order) => {
+    const result = await apiJson(`/partner/orders/${order.id}/ready`, { method: "POST" });
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    loadOrders();
+  };
+
+  const handleHandoff = async () => {
+    if (!activeOrder) return;
+    const result = await apiJson(`/partner/orders/${activeOrder.id}/confirm-handoff`, {
+      method: "POST",
+      body: JSON.stringify({ code: handoffCode })
+    });
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setHandoffOpen(false);
+    loadOrders();
+  };
+
+  const formatMoney = (value) => `${Number(value || 0)} сум`;
+  const formatOrderStatus = (value) => orderStatusLabels[value] || value;
+
   return (
     <section className="page">
       <div className="page-header">
@@ -399,57 +515,92 @@ export default function RestaurantPage() {
 
           <div className="panel">
             <h3>Заказы</h3>
-            <div className="queue">
-              {orders.map((order) => (
-                <div key={order.id} className="queue-card">
-                  <div>
-                    <div className="queue-number">{order.order_number}</div>
-                    <div className="muted">{order.outlet_name}</div>
-                    {order.handoff_code ? (
-                      <div className="muted">Код выдачи: {order.handoff_code}</div>
-                    ) : null}
-                  </div>
-                  <div className="queue-actions">
-                    <span className="pill">{order.status}</span>
-                    {order.fulfillment_type === "pickup" ? (
-                      <span className="pill">Самовывоз</span>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-              {orders.length === 0 ? (
-                <div className="muted">Нет активных заказов.</div>
-              ) : null}
-            </div>
+            <div className="muted">Перейдите во вкладку “Заказы” для операционной работы.</div>
           </div>
         </div>
       ) : null}
 
       {activeTab === "orders" ? (
         <div className="panel">
-          <h3>Заказы</h3>
-          <div className="queue">
-            {orders.map((order) => (
-              <div key={order.id} className="queue-card">
-                <div>
-                  <div className="queue-number">{order.order_number}</div>
-                  <div className="muted">{order.outlet_name}</div>
-                  {order.handoff_code ? (
-                    <div className="muted">Код выдачи: {order.handoff_code}</div>
-                  ) : null}
-                </div>
-                <div className="queue-actions">
-                  <span className="pill">{order.status}</span>
-                  {order.fulfillment_type === "pickup" ? (
-                    <span className="pill">Самовывоз</span>
-                  ) : null}
-                </div>
-              </div>
+          <div className="tabs">
+            {orderTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={ordersTab === tab.id ? "tab active" : "tab"}
+                onClick={() => setOrdersTab(tab.id)}
+              >
+                {tab.label}
+              </button>
             ))}
-            {orders.length === 0 ? (
-              <div className="muted">Нет активных заказов.</div>
-            ) : null}
           </div>
+          {ordersLoading ? (
+            <div className="muted">Загрузка заказов...</div>
+          ) : (
+            <div className="queue">
+              {orders.map((order) => (
+                <div key={order.id} className="queue-card">
+                  <div>
+                    <div className="queue-number">{order.order_number}</div>
+                    <div className="muted">
+                      {order.fulfillment_type === "pickup" ? "Самовывоз" : "Доставка"} ·{" "}
+                      {order.pickup_time || order.created_at}
+                    </div>
+                    {order.fulfillment_type !== "pickup" ? (
+                      <div className="muted">{order.address}</div>
+                    ) : null}
+                    {order.customer_comment ? (
+                      <div className="muted">Комментарий: {order.customer_comment}</div>
+                    ) : null}
+                    <div className="muted">
+                      Сумма блюд: {formatMoney(order.food_total)} · Сервис:{" "}
+                      {formatMoney(order.service_fee)}
+                    </div>
+                    <div className="muted">
+                      Приборы: {order.utensils_count || 0} · Салфетки:{" "}
+                      {order.napkins_count || 0}
+                    </div>
+                    {order.handoff_code && ordersTab === "ready" ? (
+                      <div className="muted">Код выдачи: {order.handoff_code}</div>
+                    ) : null}
+                  </div>
+                  <div className="queue-actions">
+                    <span className="pill">{formatOrderStatus(order.status)}</span>
+                    <button className="ghost" type="button" onClick={() => openDetails(order)}>
+                      Детали
+                    </button>
+                    {ordersTab === "new" ? (
+                      <>
+                        <button className="primary" type="button" onClick={() => handleAccept(order)}>
+                          Принять
+                        </button>
+                        <button className="ghost" type="button" onClick={() => openReject(order)}>
+                          Отклонить
+                        </button>
+                      </>
+                    ) : null}
+                    {ordersTab === "in_progress" ? (
+                      <button className="primary" type="button" onClick={() => handleReady(order)}>
+                        Готово
+                      </button>
+                    ) : null}
+                    {ordersTab === "ready" ? (
+                      <>
+                        {order.fulfillment_type === "pickup" ? (
+                          <button className="primary" type="button" onClick={() => openHandoff(order)}>
+                            Подтвердить выдачу
+                          </button>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+              {orders.length === 0 ? (
+                <div className="muted">Заказов пока нет.</div>
+              ) : null}
+            </div>
+          )}
         </div>
       ) : null}
 
@@ -618,6 +769,104 @@ export default function RestaurantPage() {
               </button>
               <button className="ghost" type="button" onClick={() => setModalOpen(false)}>
                 Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {rejectOpen ? (
+        <div className="modal-backdrop" onClick={() => setRejectOpen(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <h3>Причина отказа</h3>
+            <textarea
+              className="auth-input"
+              value={rejectReason}
+              onChange={(event) => setRejectReason(event.target.value)}
+              placeholder="Укажите причину"
+            />
+            <div className="action-row" style={{ marginTop: "16px" }}>
+              <button
+                className="primary"
+                type="button"
+                onClick={handleReject}
+                disabled={!rejectReason.trim()}
+              >
+                Подтвердить отказ
+              </button>
+              <button className="ghost" type="button" onClick={() => setRejectOpen(false)}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {handoffOpen ? (
+        <div className="modal-backdrop" onClick={() => setHandoffOpen(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <h3>Подтверждение выдачи</h3>
+            <input
+              className="auth-input"
+              value={handoffCode}
+              onChange={(event) => setHandoffCode(event.target.value)}
+              placeholder="Введите код"
+            />
+            <div className="action-row" style={{ marginTop: "16px" }}>
+              <button className="primary" type="button" onClick={handleHandoff}>
+                Подтвердить
+              </button>
+              <button className="ghost" type="button" onClick={() => setHandoffOpen(false)}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {detailsOpen && details ? (
+        <div className="modal-backdrop" onClick={() => setDetailsOpen(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <h3>Заказ {details.order_number}</h3>
+            <div className="muted">
+              {details.fulfillment_type === "pickup" ? "Самовывоз" : "Доставка"} ·{" "}
+              {details.pickup_time || details.created_at}
+            </div>
+            {details.items?.length ? (
+              <div className="catalog-block">
+                <div className="catalog-title">Состав заказа</div>
+                {details.items.map((item) => (
+                  <div key={item.id} className="catalog-item">
+                    <span>{item.title}</span>
+                    <span>
+                      {item.quantity} × {item.unit_price}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div className="catalog-block">
+              <div className="catalog-title">Финансы</div>
+              <div className="catalog-item">
+                <span>Сумма блюд</span>
+                <span>{formatMoney(details.food_total)}</span>
+              </div>
+              <div className="catalog-item">
+                <span>Комиссия</span>
+                <span>{formatMoney(details.commission_from_food)}</span>
+              </div>
+              <div className="catalog-item">
+                <span>К выплате</span>
+                <span>{formatMoney(details.partner_net)}</span>
+              </div>
+              <div className="catalog-item">
+                <span>Сервисный сбор</span>
+                <span>{formatMoney(details.service_fee)}</span>
+              </div>
+            </div>
+            <div className="action-row" style={{ marginTop: "16px" }}>
+              <button className="ghost" type="button" onClick={() => setDetailsOpen(false)}>
+                Закрыть
               </button>
             </div>
           </div>

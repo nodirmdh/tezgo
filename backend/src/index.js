@@ -1,10 +1,14 @@
 ﻿import crypto from "crypto";
 import express from "express";
+import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
+import pino from "pino";
+import pinoHttp from "pino-http";
+import * as Sentry from "@sentry/node";
 import { z } from "zod";
 import { initDb } from "./db.js";
 import { setupCampaignRoutes } from "./campaignRoutes.js";
@@ -13,16 +17,79 @@ const app = express();
 const port = process.env.PORT || 3001;
 const db = initDb();
 const isProd = process.env.NODE_ENV === "production";
+const COURIER_ASSIGN_MODE = (process.env.COURIER_ASSIGN_MODE || "dispatch").toLowerCase();
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
 
-if (process.env.TRUST_PROXY === "true") {
+if (process.env.TRUST_PROXY === "true" || isProd) {
   app.set("trust proxy", 1);
 }
 
-app.use(express.json());
+const logger = pino({
+  level: process.env.LOG_LEVEL || (isProd ? "info" : "debug"),
+  transport:
+    process.env.LOG_PRETTY === "true"
+      ? {
+          target: "pino-pretty",
+          options: { colorize: true, translateTime: "SYS:standard" }
+        }
+      : undefined
+});
+
+const sentryDsn = process.env.SENTRY_DSN || "";
+if (sentryDsn) {
+  Sentry.init({
+    dsn: sentryDsn,
+    environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || "development",
+    tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0),
+    beforeSend(event) {
+      if (event.request?.headers) {
+        delete event.request.headers.authorization;
+        delete event.request.headers.cookie;
+      }
+      if (event.request?.data) {
+        event.request.data = "[filtered]";
+      }
+      return event;
+    }
+  });
+  app.use(Sentry.Handlers.requestHandler());
+}
+
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (req, res) => {
+      const incoming = req.header("x-request-id");
+      if (incoming) {
+        res.setHeader("x-request-id", incoming);
+        return incoming;
+      }
+      const id = crypto.randomUUID();
+      res.setHeader("x-request-id", id);
+      return id;
+    },
+    customSuccessMessage: (req, res) =>
+      `${req.method} ${req.url} ${res.statusCode}`,
+    customErrorMessage: (req, res) =>
+      `${req.method} ${req.url} ${res.statusCode}`,
+    serializers: {
+      req(req) {
+        return {
+          id: req.id,
+          method: req.method,
+          url: req.url,
+          remoteAddress: req.remoteAddress
+        };
+      }
+    }
+  })
+);
+
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(
   cors({
@@ -35,6 +102,17 @@ app.use(
     credentials: true
   })
 );
+
+app.get("/health", (_req, res) => {
+  try {
+    db.prepare("SELECT 1").get();
+    res.json({ status: "ok", db: "ok" });
+  } catch {
+    res.status(500).json({ status: "error", db: "error" });
+  }
+});
+
+app.use("/admin", adminLimiter);
 
 const getRole = (req) =>
   String(req.user?.role || req.header("x-role") || "support").toLowerCase();
@@ -51,6 +129,8 @@ const HANDOFF_CODE_KEY = crypto
 
 const sendError = (res, status, code, message) =>
   res.status(status).json({ message, code, error: message });
+
+const getRequestId = (req) => req.id || req.header("x-request-id") || null;
 
 const hashToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
@@ -262,6 +342,24 @@ const authLimiter = rateLimit({
   keyGenerator: (req) => `${req.ip}:${req.body?.identifier || "unknown"}`,
   handler: (_req, res) =>
     sendError(res, 429, "RATE_LIMIT", "Too many login attempts")
+});
+
+const refreshLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) =>
+    sendError(res, 429, "RATE_LIMIT", "Too many refresh attempts")
+});
+
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) =>
+    sendError(res, 429, "RATE_LIMIT", "Too many admin requests")
 });
 
 const getUserByIdentifierStmt = db.prepare(
@@ -522,7 +620,7 @@ app.post("/auth/login", authLimiter, async (req, res) => {
   });
 });
 
-app.post("/auth/refresh", (req, res) => {
+app.post("/auth/refresh", refreshLimiter, (req, res) => {
   const token = refreshTokenFromRequest(req);
   if (!token) {
     return sendError(res, 401, "NO_REFRESH", "Refresh token missing");
@@ -1235,33 +1333,73 @@ app.get("/partner/orders", authRequired, requireRole(["partner"]), (req, res) =>
   if (!partner) {
     return;
   }
-  const status = req.query.status ? String(req.query.status) : null;
+  const statusParam = req.query.status ? String(req.query.status) : null;
+  const pointId = req.query.pointId ? Number(req.query.pointId) : null;
+  const from = req.query.from ? String(req.query.from) : null;
+  const to = req.query.to ? String(req.query.to) : null;
   const params = { partner_id: partner.id };
   let sql = `SELECT orders.id,
                     orders.order_number,
                     orders.status,
                     orders.created_at,
-                    orders.ready_at,
-                    orders.total_amount,
                     orders.fulfillment_type,
-                    orders.handoff_code_hash,
+                    orders.pickup_time,
+                    orders.delivery_address,
+                    orders.delivery_address_comment,
+                    orders.comment_to_restaurant,
+                    orders.utensils_count,
+                    orders.napkins_count,
+                    orders.food_total,
+                    orders.service_fee,
+                    orders.commission_from_food,
+                    orders.partner_net,
                     orders.handoff_code_encrypted,
+                    orders.handoff_code_hash,
                     orders.handoff_code_last4,
                     orders.handoff_code_expires_at,
                     orders.handoff_code_used_at,
-                    orders.courier_user_id,
                     orders.client_user_id,
+                    orders.outlet_id,
+                    clients.full_name as client_name,
+                    clients.phone as client_phone,
                     outlets.name as outlet_name,
                     outlets.partner_id as partner_id
              FROM orders
              JOIN outlets ON outlets.id = orders.outlet_id
+             LEFT JOIN clients ON clients.user_id = orders.client_user_id
              WHERE outlets.partner_id = @partner_id`;
-  if (status) {
-    sql += " AND orders.status = @status";
-    params.status = status;
+  if (pointId) {
+    sql += " AND orders.outlet_id = @outlet_id";
+    params.outlet_id = pointId;
+  }
+  if (from) {
+    sql += " AND datetime(orders.created_at) >= datetime(@from)";
+    params.from = from;
+  }
+  if (to) {
+    sql += " AND datetime(orders.created_at) <= datetime(@to)";
+    params.to = to;
+  }
+  if (statusParam) {
+    let statuses = null;
+    if (partnerStatusGroups[statusParam]) {
+      statuses = partnerStatusGroups[statusParam];
+    } else if (statusParam.includes(",")) {
+      statuses = statusParam.split(",").map((value) => value.trim()).filter(Boolean);
+    } else {
+      statuses = [statusParam];
+    }
+    if (statuses?.length) {
+      const placeholders = statuses.map((_, idx) => `@status_${idx}`).join(", ");
+      sql += ` AND orders.status IN (${placeholders})`;
+      statuses.forEach((value, idx) => {
+        params[`status_${idx}`] = value;
+      });
+    }
   }
   const rows = db.prepare(sql).all(params);
   const items = rows.map((row) => {
+    const snapshot = ensureOrderSnapshot(row);
     const canSeeCode = canExposeHandoffCode({
       order: row,
       role: "partner",
@@ -1273,14 +1411,1072 @@ app.get("/partner/orders", authRequired, requireRole(["partner"]), (req, res) =>
       order_number: row.order_number,
       status: row.status,
       created_at: row.created_at,
-      ready_at: row.ready_at,
-      total_amount: row.total_amount,
       fulfillment_type: row.fulfillment_type,
+      pickup_time: row.pickup_time,
+      outlet_id: row.outlet_id,
       outlet_name: row.outlet_name,
+      address: row.delivery_address,
+      address_comment: row.delivery_address_comment,
+      customer_name: row.client_name ?? null,
+      customer_phone: row.client_phone ?? null,
+      utensils_count: row.utensils_count ?? 0,
+      napkins_count: row.napkins_count ?? 0,
+      customer_comment: row.comment_to_restaurant ?? row.customer_comment ?? null,
+      food_total: snapshot.food_total ?? 0,
+      service_fee: snapshot.service_fee ?? 3000,
+      commission_from_food: snapshot.commission_from_food ?? 0,
+      partner_net: snapshot.partner_net ?? 0,
       handoff_code: canSeeCode ? decryptHandoffCode(row.handoff_code_encrypted) : null
     };
   });
   res.json({ items });
+});
+
+app.get("/partner/orders/:id", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  const id = Number(req.params.id);
+  const order = db.prepare(
+    `SELECT orders.*,
+            outlets.partner_id as partner_id,
+            outlets.name as outlet_name,
+            clients.full_name as client_name,
+            clients.phone as client_phone
+     FROM orders
+     JOIN outlets ON outlets.id = orders.outlet_id
+     LEFT JOIN clients ON clients.user_id = orders.client_user_id
+     WHERE orders.id = ?`
+  ).get(id);
+  if (!order || Number(order.partner_id) !== Number(partner.id)) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  const items = getOrderItemsStmt.all(order.id);
+  const snapshot = ensureOrderSnapshot(order);
+  const canSeeCode = canExposeHandoffCode({
+    order,
+    role: "partner",
+    userId: req.user?.id,
+    partnerId: partner.id
+  });
+  res.json({
+    ...snapshot,
+    outlet_name: order.outlet_name,
+    customer_name: order.client_name ?? null,
+    customer_phone: order.client_phone ?? null,
+    customer_comment: order.comment_to_restaurant ?? order.customer_comment ?? null,
+    items,
+    handoff_code: canSeeCode ? decryptHandoffCode(order.handoff_code_encrypted) : null
+  });
+});
+
+app.post("/partner/orders/:id/accept", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  const id = Number(req.params.id);
+  const order = db.prepare(
+    `SELECT orders.*, outlets.partner_id as partner_id
+     FROM orders JOIN outlets ON outlets.id = orders.outlet_id
+     WHERE orders.id = ?`
+  ).get(id);
+  if (!order || Number(order.partner_id) !== Number(partner.id)) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  if (!partnerStatusGroups.new.includes(order.status)) {
+    return sendError(res, 409, "INVALID_STATUS", "Нельзя выполнить действие в текущем статусе");
+  }
+  const now = nowIso();
+  const snapshot = ensureOrderSnapshot(order);
+  updateOrderPartnerStatusStmt.run({
+    id: order.id,
+    status: "accepted",
+    accepted_at: now
+  });
+  logOrderEvent({
+    order_id: order.id,
+    type: "partner_accepted",
+    payload: null,
+    actor_id: getActorId(req)
+  });
+  logAudit({
+    entity_type: "order",
+    entity_id: order.id,
+    action: "partner_accept",
+    actor_id: getActorId(req),
+    before: order,
+    after: { ...snapshot, status: "accepted", accepted_at: now }
+  });
+  res.json({ status: "ok" });
+});
+
+app.post("/partner/orders/:id/reject", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Reject reason required");
+  }
+  const id = Number(req.params.id);
+  const order = db.prepare(
+    `SELECT orders.*, outlets.partner_id as partner_id
+     FROM orders JOIN outlets ON outlets.id = orders.outlet_id
+     WHERE orders.id = ?`
+  ).get(id);
+  if (!order || Number(order.partner_id) !== Number(partner.id)) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  if (!partnerStatusGroups.new.includes(order.status)) {
+    return sendError(res, 409, "INVALID_STATUS", "Нельзя выполнить действие в текущем статусе");
+  }
+  const now = nowIso();
+  updateOrderPartnerStatusStmt.run({
+    id: order.id,
+    status: "rejected",
+    reject_reason: reason,
+    closed_at: now
+  });
+  logOrderEvent({
+    order_id: order.id,
+    type: "partner_rejected",
+    payload: { reason },
+    actor_id: getActorId(req)
+  });
+  logAudit({
+    entity_type: "order",
+    entity_id: order.id,
+    action: "partner_reject",
+    actor_id: getActorId(req),
+    before: order,
+    after: { ...order, status: "rejected", reject_reason: reason, closed_at: now }
+  });
+  res.json({ status: "ok" });
+});
+
+app.post("/partner/orders/:id/ready", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  const id = Number(req.params.id);
+  const order = db.prepare(
+    `SELECT orders.*, outlets.partner_id as partner_id
+     FROM orders JOIN outlets ON outlets.id = orders.outlet_id
+     WHERE orders.id = ?`
+  ).get(id);
+  if (!order || Number(order.partner_id) !== Number(partner.id)) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  if (!partnerStatusGroups.in_progress.includes(order.status)) {
+    return sendError(res, 409, "INVALID_STATUS", "Нельзя выполнить действие в текущем статусе");
+  }
+  const now = nowIso();
+  ensureOrderSnapshot(order);
+  if (!order.handoff_code_hash) {
+    const handoffCode = generateHandoffCode();
+    updateOrderStmt.run({
+      id: order.id,
+      handoff_code_hash: hashHandoffCode(handoffCode),
+      handoff_code_encrypted: encryptHandoffCode(handoffCode),
+      handoff_code_last4: handoffCode.slice(-4),
+      handoff_code_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    });
+  }
+  updateOrderPartnerStatusStmt.run({
+    id: order.id,
+    status: "ready",
+    ready_at: now
+  });
+  logOrderEvent({
+    order_id: order.id,
+    type: "ready",
+    payload: null,
+    actor_id: getActorId(req)
+  });
+  logAudit({
+    entity_type: "order",
+    entity_id: order.id,
+    action: "partner_ready",
+    actor_id: getActorId(req),
+    before: order,
+    after: { ...order, status: "ready", ready_at: now }
+  });
+  res.json({ status: "ok" });
+});
+
+app.post(
+  "/partner/orders/:id/confirm-handoff",
+  authRequired,
+  requireRole(["partner"]),
+  (req, res) => {
+    const partner = getPartnerForRequest(req, res);
+    if (!partner) {
+      return;
+    }
+    const id = Number(req.params.id);
+    const code = String(req.body?.code || "").trim();
+    if (!code) {
+      return sendError(res, 400, "VALIDATION_ERROR", "Code required");
+    }
+    const order = db.prepare(
+      `SELECT orders.*, outlets.partner_id as partner_id
+       FROM orders JOIN outlets ON outlets.id = orders.outlet_id
+       WHERE orders.id = ?`
+    ).get(id);
+    if (!order || Number(order.partner_id) !== Number(partner.id)) {
+      return sendError(res, 404, "NOT_FOUND", "Order not found");
+    }
+    if (order.fulfillment_type !== "pickup") {
+      return sendError(res, 403, "FORBIDDEN", "Delivery handoff requires courier");
+    }
+    if (!partnerStatusGroups.ready.includes(order.status)) {
+      return sendError(res, 409, "INVALID_STATUS", "Нельзя выполнить действие в текущем статусе");
+    }
+    if (!isHandoffCodeActive(order)) {
+      return sendError(res, 409, "CONFLICT", "Handoff code expired");
+    }
+    const hash = hashHandoffCode(code);
+    if (hash !== order.handoff_code_hash) {
+      incrementHandoffFailedAttemptsStmt.run({ id: order.id });
+      logAudit({
+        entity_type: "order",
+        entity_id: order.id,
+        action: "handoff_failed",
+        actor_id: req.user?.id,
+        before: { handoff_code_last4: order.handoff_code_last4 },
+        after: { ip: req.ip }
+      });
+      return sendError(res, 400, "INVALID_CODE", "Неверный код");
+    }
+    const now = nowIso();
+    updateOrderHandoffStmt.run({
+      id: order.id,
+      status: "handed_over",
+      handed_over_at: now,
+      closed_at: now,
+      handoff_code_used_at: now
+    });
+    resetHandoffFailedAttemptsStmt.run({ id: order.id });
+    logOrderEvent({
+      order_id: order.id,
+      type: "handoff_confirmed",
+      payload: { role: "partner" },
+      actor_id: req.user?.id
+    });
+    logAudit({
+      entity_type: "order",
+      entity_id: order.id,
+      action: "handoff_confirmed",
+      actor_id: req.user?.id,
+      before: order,
+      after: { status: "handed_over", handoff_code_used_at: now }
+    });
+    res.json({ status: "ok" });
+  }
+);
+
+const buildPickupSlots = ({ stepMinutes = 30, hoursAhead = 2 }) => {
+  const now = new Date();
+  const start = new Date(now);
+  const minutes = start.getMinutes();
+  const rounded = Math.ceil(minutes / stepMinutes) * stepMinutes;
+  start.setMinutes(rounded);
+  start.setSeconds(0);
+  start.setMilliseconds(0);
+  const totalSlots = Math.max(1, Math.floor((hoursAhead * 60) / stepMinutes));
+  const slots = [];
+  for (let i = 0; i < totalSlots; i += 1) {
+    const slot = new Date(start.getTime() + i * stepMinutes * 60 * 1000);
+    slots.push(slot.toISOString());
+  }
+  return slots;
+};
+
+app.get("/client/points", authRequired, requireRole(["client"]), (req, res) => {
+  const search = req.query.q ? String(req.query.q).trim() : "";
+  const category = req.query.category ? String(req.query.category).trim() : "";
+  const openNow = req.query.openNow === "true" || req.query.openNow === "1";
+  const params = {};
+  let sql =
+    `SELECT DISTINCT points.id,
+            points.partner_id,
+            points.name,
+            points.address,
+            points.address_comment,
+            points.phone,
+            points.work_hours,
+            points.status
+     FROM points`;
+  if (category) {
+    sql += " JOIN menu_categories ON menu_categories.point_id = points.id";
+  }
+  const conditions = [];
+  if (search) {
+    conditions.push("points.name LIKE @search");
+    params.search = `%${search}%`;
+  }
+  if (openNow) {
+    conditions.push("points.status = 'active'");
+  }
+  if (category) {
+    if (/^\d+$/.test(category)) {
+      conditions.push("menu_categories.id = @category_id");
+      params.category_id = Number(category);
+    } else {
+      const normalized = normalizeCategoryName(category);
+      if (normalized) {
+        conditions.push("menu_categories.name_normalized = @category_name");
+        params.category_name = normalized.normalized;
+      }
+    }
+  }
+  if (conditions.length) {
+    sql += ` WHERE ${conditions.join(" AND ")}`;
+  }
+  sql += " ORDER BY points.status DESC, points.id DESC";
+  const items = db.prepare(sql).all(params);
+  res.json({ items });
+});
+
+app.get("/client/points/:id", authRequired, requireRole(["client"]), (req, res) => {
+  const id = Number(req.params.id);
+  const point = getPointByIdStmt.get(id);
+  if (!point) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  const categories = listMenuCategoriesStmt.all(id);
+  res.json({ ...point, categories });
+});
+
+app.get(
+  "/client/points/:id/categories",
+  authRequired,
+  requireRole(["client"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const point = getPointByIdStmt.get(id);
+    if (!point) {
+      return sendError(res, 404, "NOT_FOUND", "Point not found");
+    }
+    const items = listMenuCategoriesStmt.all(id);
+    res.json({ items });
+  }
+);
+
+app.get("/client/points/:id/items", authRequired, requireRole(["client"]), (req, res) => {
+  const id = Number(req.params.id);
+  const point = getPointByIdStmt.get(id);
+  if (!point) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  const params = { point_id: id };
+  const conditions = ["menu_items.point_id = @point_id"];
+  if (req.query.categoryId) {
+    conditions.push("menu_items.category_id = @category_id");
+    params.category_id = Number(req.query.categoryId);
+  }
+  if (req.query.q) {
+    conditions.push("menu_items.name LIKE @search");
+    params.search = `%${String(req.query.q).trim()}%`;
+  }
+  conditions.push("menu_items.is_available = 1");
+  const sql =
+    `SELECT menu_items.id,
+            menu_items.point_id,
+            menu_items.category_id,
+            menu_items.name,
+            menu_items.description,
+            menu_items.price,
+            menu_items.is_available,
+            menu_items.photo_url,
+            menu_categories.name as category_name
+     FROM menu_items
+     LEFT JOIN menu_categories ON menu_categories.id = menu_items.category_id
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY menu_items.id DESC`;
+  const items = db.prepare(sql).all(params);
+  res.json({ items });
+});
+
+app.get(
+  "/client/points/:id/pickup-slots",
+  authRequired,
+  requireRole(["client"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const point = getPointByIdStmt.get(id);
+    if (!point) {
+      return sendError(res, 404, "NOT_FOUND", "Point not found");
+    }
+    if (point.status !== "active") {
+      return sendError(res, 409, "CLOSED", "Точка сейчас закрыта");
+    }
+    const slots = buildPickupSlots({ stepMinutes: 30, hoursAhead: 2 });
+    res.json({ items: slots });
+  }
+);
+
+app.post("/client/orders", authRequired, requireRole(["client"]), (req, res) => {
+  const schema = z.object({
+    pointId: z.number().int().positive(),
+    fulfillment_type: z.enum(["delivery", "pickup"]),
+    pickup_time: z.string().nullable().optional(),
+    address: z.string().nullable().optional(),
+    address_comment: z.string().nullable().optional(),
+    utensils_count: z.number().int().min(0).optional(),
+    napkins_count: z.number().int().min(0).optional(),
+    customer_comment: z.string().nullable().optional(),
+    items: z.array(
+      z.object({
+        itemId: z.number().int().positive(),
+        quantity: z.number().int().min(1)
+      })
+    )
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const payload = parsed.data;
+  const point = getPointByIdStmt.get(payload.pointId);
+  if (!point) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  if (point.status !== "active") {
+    return sendError(res, 409, "CLOSED", "Точка сейчас закрыта");
+  }
+  if (payload.fulfillment_type === "delivery" && !payload.address?.trim()) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Address required");
+  }
+  if (payload.fulfillment_type === "pickup" && !payload.pickup_time) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Pickup time required");
+  }
+  if (!payload.items.length) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Items required");
+  }
+  const itemIds = payload.items.map((item) => item.itemId);
+  const placeholders = itemIds.map(() => "?").join(", ");
+  const menuRows = db
+    .prepare(
+      `SELECT id, name, description, price, is_available, photo_url
+       FROM menu_items
+       WHERE point_id = ? AND id IN (${placeholders})`
+    )
+    .all(payload.pointId, ...itemIds);
+  if (!menuRows.length) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Items not found");
+  }
+  const menuMap = new Map(menuRows.map((row) => [row.id, row]));
+  for (const item of payload.items) {
+    const menuItem = menuMap.get(item.itemId);
+    if (!menuItem) {
+      return sendError(res, 400, "VALIDATION_ERROR", "Item not found");
+    }
+    if (!menuItem.is_available) {
+      return sendError(res, 409, "NOT_AVAILABLE", "Item not available");
+    }
+  }
+  const orderItems = payload.items.map((item) => {
+    const menuItem = menuMap.get(item.itemId);
+    const unitPrice = Number(menuItem.price || 0);
+    const totalPrice = unitPrice * Number(item.quantity || 0);
+    return {
+      item_id: menuItem.id,
+      title: menuItem.name,
+      description: menuItem.description ?? null,
+      photo_url: menuItem.photo_url ?? null,
+      unit_price: unitPrice,
+      quantity: Number(item.quantity || 0),
+      total_price: totalPrice
+    };
+  });
+  const foodTotal = orderItems.reduce((sum, item) => sum + item.total_price, 0);
+  const commissionPercent = getPartnerCommissionPercent(point.id);
+  const commissionFromFood = Math.max(
+    0,
+    Math.round((foodTotal * Number(commissionPercent || 0)) / 100)
+  );
+  const serviceFee = 3000;
+  const partnerNet = Math.max(0, foodTotal - commissionFromFood);
+  const totalAmount = Math.max(0, foodTotal + serviceFee);
+  const handoffCode = generateHandoffCode();
+  const now = nowIso();
+  const createOrderTx = db.transaction(() => {
+    const result = createClientOrderStmt.run({
+      order_number: toOrderNumber(),
+      outlet_id: payload.pointId,
+      client_user_id: req.user.id,
+      status: "pending_partner",
+      total_amount: totalAmount,
+      delivery_address: payload.address?.trim() || null,
+      delivery_address_comment: payload.address_comment?.trim() || null,
+      fulfillment_type: payload.fulfillment_type,
+      pickup_time: payload.pickup_time || null,
+      utensils_count: payload.utensils_count ?? 0,
+      napkins_count: payload.napkins_count ?? 0,
+      customer_comment: payload.customer_comment?.trim() || null,
+      handoff_code_hash: hashHandoffCode(handoffCode),
+      handoff_code_encrypted: encryptHandoffCode(handoffCode),
+      handoff_code_last4: handoffCode.slice(-4),
+      handoff_code_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      food_total: foodTotal,
+      commission_percent_snapshot: commissionPercent,
+      commission_from_food: commissionFromFood,
+      partner_net: partnerNet,
+      service_fee: serviceFee
+    });
+    orderItems.forEach((item) => {
+      insertOrderItemStmt.run(
+        result.lastInsertRowid,
+        item.item_id,
+        item.title,
+        item.description,
+        item.photo_url,
+        null,
+        null,
+        item.unit_price,
+        item.quantity,
+        item.total_price
+      );
+    });
+    logOrderEvent({
+      order_id: result.lastInsertRowid,
+      type: "created",
+      payload: { status: "pending_partner" },
+      actor_id: req.user.id
+    });
+    logAudit({
+      entity_type: "order",
+      entity_id: result.lastInsertRowid,
+      action: "client_create",
+      actor_id: req.user.id,
+      before: null,
+      after: {
+        outlet_id: payload.pointId,
+        client_user_id: req.user.id,
+        status: "pending_partner",
+        fulfillment_type: payload.fulfillment_type
+      }
+    });
+    return result.lastInsertRowid;
+  });
+  const orderId = createOrderTx();
+  res.status(201).json({
+    orderId,
+    status: "pending_partner",
+    totals: {
+      food_total: foodTotal,
+      service_fee: serviceFee,
+      commission_from_food: commissionFromFood,
+      partner_net: partnerNet,
+      total_amount: totalAmount
+    }
+  });
+});
+
+app.get("/client/orders", authRequired, requireRole(["client"]), (req, res) => {
+  const statusParam = req.query.status ? String(req.query.status) : null;
+  const params = { client_id: req.user.id };
+  let sql =
+    `SELECT orders.id,
+            orders.order_number,
+            orders.status,
+            orders.created_at,
+            orders.fulfillment_type,
+            orders.pickup_time,
+            orders.delivery_address,
+            orders.customer_comment,
+            orders.reject_reason,
+            orders.handoff_code_encrypted,
+            orders.handoff_code_hash,
+            orders.handoff_code_last4,
+            orders.handoff_code_expires_at,
+            orders.handoff_code_used_at,
+            orders.food_total,
+            orders.service_fee,
+            orders.commission_from_food,
+            orders.partner_net
+     FROM orders
+     WHERE orders.client_user_id = @client_id`;
+  if (statusParam) {
+    const statuses = statusParam.includes(",")
+      ? statusParam.split(",").map((value) => value.trim()).filter(Boolean)
+      : [statusParam];
+    if (statuses.length) {
+      const placeholders = statuses.map((_, idx) => `@status_${idx}`).join(", ");
+      sql += ` AND orders.status IN (${placeholders})`;
+      statuses.forEach((value, idx) => {
+        params[`status_${idx}`] = value;
+      });
+    }
+  }
+  sql += " ORDER BY orders.id DESC";
+  const rows = db.prepare(sql).all(params);
+  const items = rows.map((row) => ({
+    id: row.id,
+    order_number: row.order_number,
+    status: row.status,
+    created_at: row.created_at,
+    fulfillment_type: row.fulfillment_type,
+    pickup_time: row.pickup_time,
+    address: row.delivery_address,
+    customer_comment: row.customer_comment ?? null,
+    reject_reason: row.reject_reason ?? null,
+    food_total: row.food_total ?? 0,
+    service_fee: row.service_fee ?? 3000,
+    commission_from_food: row.commission_from_food ?? 0,
+    partner_net: row.partner_net ?? 0
+  }));
+  res.json({ items });
+});
+
+app.get("/client/orders/:id", authRequired, requireRole(["client"]), (req, res) => {
+  const id = Number(req.params.id);
+  const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+  if (!order || Number(order.client_user_id) !== Number(req.user.id)) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  const items = getOrderItemsStmt.all(order.id);
+  const snapshot = ensureOrderSnapshot(order);
+  const canSeeCode = canExposeHandoffCode({
+    order,
+    role: "client",
+    userId: req.user.id
+  });
+  res.json({
+    ...snapshot,
+    delivery_address: order.delivery_address,
+    delivery_address_comment: order.delivery_address_comment,
+    customer_comment: order.customer_comment,
+    reject_reason: order.reject_reason,
+    items,
+    timeline: {
+      created_at: order.created_at,
+      accepted_at: order.accepted_at,
+      ready_at: order.ready_at,
+      handed_over_at: order.handed_over_at,
+      delivered_at: order.delivered_at,
+      closed_at: order.closed_at
+    },
+    handoff_code: canSeeCode ? decryptHandoffCode(order.handoff_code_encrypted) : null
+  });
+});
+
+app.get("/courier/orders/assigned", authRequired, requireRole(["courier"]), (req, res) => {
+  const courierId = req.user?.id;
+  if (!courierId) {
+    return sendError(res, 401, "UNAUTHORIZED", "Unauthorized");
+  }
+  const rows = db.prepare(
+    `SELECT orders.id,
+            orders.order_number,
+            orders.status,
+            orders.created_at,
+            orders.fulfillment_type,
+            orders.delivery_address,
+            orders.delivery_address_comment,
+            orders.customer_comment,
+            orders.food_total,
+            orders.service_fee,
+            orders.total_weight_grams,
+            orders.handoff_code_encrypted,
+            orders.handoff_code_hash,
+            orders.handoff_code_last4,
+            orders.handoff_code_expires_at,
+            orders.handoff_code_used_at,
+            orders.courier_user_id,
+            outlets.name as outlet_name,
+            outlets.address as outlet_address,
+            outlets.phone as outlet_phone
+     FROM orders
+     JOIN outlets ON outlets.id = orders.outlet_id
+     WHERE orders.courier_user_id = ?
+       AND orders.status IN ('assigned', 'picked_up', 'in_transit')`
+  ).all(courierId);
+  const items = rows.map((row) => {
+    const canSeeCode = canExposeHandoffCode({
+      order: row,
+      role: "courier",
+      userId: courierId
+    });
+    return {
+      id: row.id,
+      order_number: row.order_number,
+      status: row.status,
+      created_at: row.created_at,
+      delivery_address: row.delivery_address,
+      delivery_address_comment: row.delivery_address_comment,
+      customer_comment: row.customer_comment,
+      food_total: row.food_total ?? 0,
+      service_fee: row.service_fee ?? 3000,
+      total_weight_grams: row.total_weight_grams ?? null,
+      outlet_name: row.outlet_name,
+      outlet_address: row.outlet_address,
+      outlet_phone: row.outlet_phone,
+      handoff_code: canSeeCode ? decryptHandoffCode(row.handoff_code_encrypted) : null
+    };
+  });
+  res.json({ items });
+});
+
+app.get("/courier/orders/available", authRequired, requireRole(["courier"]), (req, res) => {
+  if (COURIER_ASSIGN_MODE !== "marketplace") {
+    return sendError(res, 403, "FORBIDDEN", "Marketplace mode disabled");
+  }
+  const rows = db.prepare(
+    `SELECT orders.id,
+            orders.order_number,
+            orders.status,
+            orders.created_at,
+            orders.delivery_address,
+            orders.delivery_address_comment,
+            orders.food_total,
+            orders.service_fee,
+            orders.total_weight_grams,
+            outlets.name as outlet_name,
+            outlets.address as outlet_address
+     FROM orders
+     JOIN outlets ON outlets.id = orders.outlet_id
+     WHERE orders.courier_user_id IS NULL
+       AND orders.status IN ('ready', 'ready_for_pickup', 'accepted', 'preparing', 'accepted_by_restaurant')`
+  ).all();
+  res.json({ items: rows });
+});
+
+app.post("/courier/orders/:id/accept", authRequired, requireRole(["courier"]), (req, res) => {
+  if (COURIER_ASSIGN_MODE !== "marketplace") {
+    return sendError(res, 403, "FORBIDDEN", "Marketplace mode disabled");
+  }
+  const id = Number(req.params.id);
+  const order = getOrderStmt.get(id);
+  if (!order) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  if (order.courier_user_id) {
+    return sendError(res, 409, "CONFLICT", "Order already assigned");
+  }
+  if (!["ready", "ready_for_pickup", "accepted", "preparing", "accepted_by_restaurant"].includes(order.status)) {
+    return sendError(res, 409, "INVALID_STATUS", "Нельзя выполнить действие в текущем статусе");
+  }
+  const now = nowIso();
+  updateOrderCourierAssignStmt.run({
+    id: order.id,
+    courier_user_id: req.user.id,
+    courier_assigned_at: now
+  });
+  logOrderEvent({
+    order_id: order.id,
+    type: "courier_assigned",
+    payload: { courier_user_id: req.user.id },
+    actor_id: req.user.id
+  });
+  logAudit({
+    entity_type: "order",
+    entity_id: order.id,
+    action: "courier_accept",
+    actor_id: req.user.id,
+    before: order,
+    after: { ...order, courier_user_id: req.user.id }
+  });
+  res.json({ status: "ok" });
+});
+
+app.post("/courier/orders/:id/picked-up", authRequired, requireRole(["courier"]), (req, res) => {
+  const id = Number(req.params.id);
+  const order = getOrderStmt.get(id);
+  if (!order) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  if (Number(order.courier_user_id || 0) !== Number(req.user.id)) {
+    return sendError(res, 403, "FORBIDDEN", "Courier not assigned");
+  }
+  if (!["assigned", "ready", "ready_for_pickup", "accepted", "preparing", "accepted_by_restaurant"].includes(order.status)) {
+    return sendError(res, 409, "INVALID_STATUS", "Нельзя выполнить действие в текущем статусе");
+  }
+  const now = nowIso();
+  updateOrderCourierStatusStmt.run({
+    id: order.id,
+    status: "picked_up",
+    courier_picked_up_at: now,
+    picked_up_at: now
+  });
+  logOrderEvent({
+    order_id: order.id,
+    type: "picked_up",
+    payload: null,
+    actor_id: req.user.id
+  });
+  logAudit({
+    entity_type: "order",
+    entity_id: order.id,
+    action: "courier_picked_up",
+    actor_id: req.user.id,
+    before: order,
+    after: { ...order, status: "picked_up" }
+  });
+  res.json({ status: "ok" });
+});
+
+app.post("/courier/orders/:id/in-transit", authRequired, requireRole(["courier"]), (req, res) => {
+  const id = Number(req.params.id);
+  const order = getOrderStmt.get(id);
+  if (!order) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  if (Number(order.courier_user_id || 0) !== Number(req.user.id)) {
+    return sendError(res, 403, "FORBIDDEN", "Courier not assigned");
+  }
+  if (!["picked_up"].includes(order.status)) {
+    return sendError(res, 409, "INVALID_STATUS", "Нельзя выполнить действие в текущем статусе");
+  }
+  const now = nowIso();
+  updateOrderCourierStatusStmt.run({
+    id: order.id,
+    status: "in_transit"
+  });
+  logOrderEvent({
+    order_id: order.id,
+    type: "in_transit",
+    payload: null,
+    actor_id: req.user.id
+  });
+  logAudit({
+    entity_type: "order",
+    entity_id: order.id,
+    action: "courier_in_transit",
+    actor_id: req.user.id,
+    before: order,
+    after: { ...order, status: "in_transit" }
+  });
+  res.json({ status: "ok" });
+});
+
+app.post("/courier/orders/:id/delivered", authRequired, requireRole(["courier"]), (req, res) => {
+  const id = Number(req.params.id);
+  const code = String(req.body?.code || "").trim();
+  if (!code) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Code required");
+  }
+  const order = getOrderHandoffStmt.get(id);
+  if (!order) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  if (Number(order.courier_user_id || 0) !== Number(req.user.id)) {
+    return sendError(res, 403, "FORBIDDEN", "Courier not assigned");
+  }
+  if (!["picked_up", "in_transit"].includes(order.status)) {
+    return sendError(res, 409, "INVALID_STATUS", "Нельзя выполнить действие в текущем статусе");
+  }
+  if (!isHandoffCodeActive(order)) {
+    return sendError(res, 409, "CONFLICT", "Handoff code expired");
+  }
+  const hash = hashHandoffCode(code);
+  if (hash !== order.handoff_code_hash) {
+    incrementHandoffFailedAttemptsStmt.run({ id: order.id });
+    logAudit({
+      entity_type: "order",
+      entity_id: order.id,
+      action: "handoff_failed",
+      actor_id: req.user?.id,
+      before: { handoff_code_last4: order.handoff_code_last4 },
+      after: { ip: req.ip }
+    });
+    return sendError(res, 400, "INVALID_CODE", "Неверный код");
+  }
+  const now = nowIso();
+  updateOrderHandoffStmt.run({
+    id: order.id,
+    status: "delivered",
+    delivered_at: now,
+    handoff_code_used_at: now
+  });
+  resetHandoffFailedAttemptsStmt.run({ id: order.id });
+  updateOrderCourierStatusStmt.run({
+    id: order.id,
+    status: "delivered",
+    courier_delivered_at: now,
+    delivered_at: now
+  });
+  logOrderEvent({
+    order_id: order.id,
+    type: "delivered",
+    payload: { role: "courier" },
+    actor_id: req.user.id
+  });
+  logAudit({
+    entity_type: "order",
+    entity_id: order.id,
+    action: "courier_delivered",
+    actor_id: req.user.id,
+    before: order,
+    after: { status: "delivered", handoff_code_used_at: now }
+  });
+  res.json({ status: "ok" });
+});
+
+app.get("/admin/couriers", requireRole(["admin", "support"]), (_req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT couriers.user_id as id,
+              couriers.is_active,
+              couriers.rating_avg,
+              couriers.rating_count,
+              couriers.phone,
+              couriers.full_name,
+              couriers.address,
+              couriers.delivery_methods
+       FROM couriers
+       JOIN users ON users.id = couriers.user_id
+       ORDER BY couriers.user_id DESC`
+    )
+    .all();
+  res.json({ items: rows });
+});
+
+app.post(
+  "/admin/orders/:id/assign-courier",
+  requireRole(["admin", "support"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const courierUserId = Number(req.body?.courierUserId || 0);
+    if (!courierUserId) {
+      return sendError(res, 400, "VALIDATION_ERROR", "courierUserId required");
+    }
+    const order = getOrderStmt.get(id);
+    if (!order) {
+      return sendError(res, 404, "NOT_FOUND", "Order not found");
+    }
+    if (["delivered", "closed", "cancelled"].includes(order.status)) {
+      return sendError(res, 409, "CONFLICT", "Order already завершен");
+    }
+    if (order.courier_user_id) {
+      return sendError(res, 409, "CONFLICT", "Courier already assigned");
+    }
+    const now = nowIso();
+    updateOrderCourierAssignStmt.run({
+      id: order.id,
+      courier_user_id: courierUserId,
+      courier_assigned_at: now
+    });
+    updateOrderCourierStatusStmt.run({
+      id: order.id,
+      status: "assigned",
+      courier_user_id: courierUserId,
+      courier_assigned_at: now
+    });
+    logOrderEvent({
+      order_id: order.id,
+      type: "courier_assigned",
+      payload: { courier_user_id: courierUserId },
+      actor_id: getActorId(req)
+    });
+    logAudit({
+      entity_type: "order",
+      entity_id: order.id,
+      action: "assign_courier",
+      actor_id: getActorId(req),
+      actor_role: getRole(req),
+      request_id: getRequestId(req),
+      before: order,
+      after: { ...order, courier_user_id: courierUserId }
+    });
+    res.json({ status: "ok" });
+  }
+);
+
+app.post(
+  "/admin/orders/:id/unassign-courier",
+  requireRole(["admin", "support"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const order = getOrderStmt.get(id);
+    if (!order) {
+      return sendError(res, 404, "NOT_FOUND", "Order not found");
+    }
+    if (!order.courier_user_id) {
+      return sendError(res, 409, "CONFLICT", "Courier not assigned");
+    }
+    if (["picked_up", "in_transit", "delivered"].includes(order.status)) {
+      return sendError(res, 409, "CONFLICT", "Cannot unassign after pickup");
+    }
+    updateOrderStmt.run({
+      id: order.id,
+      status: null,
+      courier_user_id: null,
+      prep_eta_minutes: null,
+      total_amount: null,
+      delivery_address: null
+    });
+    logOrderEvent({
+      order_id: order.id,
+      type: "courier_unassigned",
+      payload: null,
+      actor_id: getActorId(req)
+    });
+    logAudit({
+      entity_type: "order",
+      entity_id: order.id,
+      action: "unassign_courier",
+      actor_id: getActorId(req),
+      actor_role: getRole(req),
+      request_id: getRequestId(req),
+      before: order,
+      after: { ...order, courier_user_id: null }
+    });
+    res.json({ status: "ok" });
+  }
+);
+
+app.post("/admin/orders/:id/cancel", requireRole(["admin", "support"]), (req, res) => {
+  const id = Number(req.params.id);
+  const order = getOrderStmt.get(id);
+  if (!order) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  const reason = String(req.body?.reason || "").trim();
+  const source = String(req.body?.source || "").trim();
+  const penaltyAmount = Number(req.body?.penalty_amount || 0);
+  if (!reason) {
+    return sendError(res, 400, "VALIDATION_ERROR", "reason required");
+  }
+  if (!source || !["client", "partner", "support", "system"].includes(source)) {
+    return sendError(res, 400, "VALIDATION_ERROR", "source invalid");
+  }
+  if (source === "courier") {
+    return sendError(res, 403, "FORBIDDEN", "Courier cancel forbidden");
+  }
+  if (["delivered", "closed"].includes(order.status)) {
+    return sendError(res, 409, "CONFLICT", "Order already завершен");
+  }
+  const now = nowIso();
+  updateOrderCancelAdminStmt.run({
+    id: order.id,
+    cancelled_at: now,
+    cancel_source: source,
+    cancel_reason: reason,
+    penalty_amount: Number.isNaN(penaltyAmount) ? 0 : Math.max(0, penaltyAmount)
+  });
+  logOrderEvent({
+    order_id: order.id,
+    type: "cancelled",
+    payload: { reason, source, penalty_amount: penaltyAmount },
+    actor_id: getActorId(req)
+  });
+  logAudit({
+    entity_type: "order",
+    entity_id: order.id,
+    action: "admin_cancel",
+    actor_id: getActorId(req),
+    actor_role: getRole(req),
+    request_id: getRequestId(req),
+    before: order,
+    after: { ...order, status: "cancelled", cancel_reason: reason, cancel_source: source }
+  });
+  res.json({ status: "ok" });
 });
 
 app.get("/admin/partners", requireRole(["admin", "support"]), (req, res) => {
@@ -1925,6 +3121,53 @@ const getPartnerCommissionPercent = (outletId) => {
   return Number(row?.commission || 0);
 };
 
+const ensureOrderSnapshot = (order) => {
+  if (!order) return order;
+  const hasSnapshot =
+    order.food_total !== null &&
+    order.commission_percent_snapshot !== null &&
+    order.commission_from_food !== null &&
+    order.partner_net !== null &&
+    order.service_fee !== null;
+  if (hasSnapshot) {
+    return order;
+  }
+  const itemsSum = getOrderItemsSumStmt.get(order.id)?.total ?? 0;
+  const baseTotal = Number(order.food_total ?? 0) || Number(order.subtotal_food ?? 0) || Number(itemsSum || 0);
+  const commissionPercent =
+    order.commission_percent_snapshot !== null && order.commission_percent_snapshot !== undefined
+      ? Number(order.commission_percent_snapshot)
+      : getPartnerCommissionPercent(order.outlet_id);
+  const serviceFee = order.service_fee !== null && order.service_fee !== undefined
+    ? Number(order.service_fee)
+    : 3000;
+  const commissionFromFood = Math.max(0, Math.round((baseTotal * commissionPercent) / 100));
+  const partnerNet = Math.max(0, baseTotal - commissionFromFood);
+  updateOrderSnapshotStmt.run({
+    id: order.id,
+    food_total: baseTotal,
+    service_fee: serviceFee,
+    commission_percent_snapshot: commissionPercent,
+    commission_from_food: commissionFromFood,
+    partner_net: partnerNet
+  });
+  return {
+    ...order,
+    food_total: baseTotal,
+    service_fee: serviceFee,
+    commission_percent_snapshot: commissionPercent,
+    commission_from_food: commissionFromFood,
+    partner_net: partnerNet
+  };
+};
+
+const partnerStatusGroups = {
+  new: ["created", "pending_partner", "accepted_by_system"],
+  in_progress: ["accepted", "preparing", "accepted_by_restaurant"],
+  ready: ["ready", "ready_for_pickup"],
+  history: ["handed_over", "delivered", "closed", "rejected", "cancelled", "picked_up"]
+};
+
 const computeOrderPricing = ({ order, items }) => {
   const subtotalFood = items.reduce((sum, item) => sum + Number(item.total_price || 0), 0);
   const commissionPercent = getPartnerCommissionPercent(order.outlet_id);
@@ -2120,6 +3363,25 @@ const normalizeEventPayload = (payload) => {
   }
 };
 
+const csvEscape = (value) => {
+  if (value === null || value === undefined) return "";
+  const stringValue = String(value);
+  if (/[",\n]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  return stringValue;
+};
+
+const toCsv = (rows, headers) => {
+  const headerLine = headers.map((header) => csvEscape(header.label)).join(",");
+  const lines = rows.map((row) =>
+    headers
+      .map((header) => csvEscape(row[header.key]))
+      .join(",")
+  );
+  return [headerLine, ...lines].join("\n");
+};
+
 const computeOrderSignals = (order, events) => {
   const sortedEvents = [...events].sort(
     (a, b) => toMs(a.created_at || 0) - toMs(b.created_at || 0)
@@ -2260,6 +3522,164 @@ const computeOrderSignals = (order, events) => {
   };
 };
 
+const PROBLEM_THRESHOLDS = {
+  partnerResponseMinutes: 10,
+  cookingMinutes: 30,
+  noCourierMinutes: 10,
+  courierDelayMinutes: 45,
+  frequentCancellations: 3,
+  handoffFailedAttempts: 3
+};
+
+const computeProblemFlagsForOrder = (order) => {
+  if (!order) return [];
+  const nowMs = Date.now();
+  const createdAtMs = toMs(order.created_at);
+  const acceptedAtMs = toMs(order.accepted_at) ?? createdAtMs;
+  const readyAtMs = toMs(order.ready_at);
+  const pickedUpMs =
+    toMs(order.courier_picked_up_at) ?? toMs(order.picked_up_at);
+
+  const flags = [];
+
+  if (
+    ["pending_partner", "created"].includes(order.status) &&
+    createdAtMs &&
+    nowMs - createdAtMs >
+      PROBLEM_THRESHOLDS.partnerResponseMinutes * 60 * 1000
+  ) {
+    flags.push({
+      type: "partner_not_responding",
+      severity: "high",
+      description: `Нет ответа партнера > ${PROBLEM_THRESHOLDS.partnerResponseMinutes} минут`
+    });
+  }
+
+  if (
+    ["accepted", "preparing", "accepted_by_restaurant"].includes(order.status) &&
+    acceptedAtMs &&
+    nowMs - acceptedAtMs >
+      PROBLEM_THRESHOLDS.cookingMinutes * 60 * 1000
+  ) {
+    flags.push({
+      type: "cooking_delay",
+      severity: "medium",
+      description: `Готовка длится > ${PROBLEM_THRESHOLDS.cookingMinutes} минут`
+    });
+  }
+
+  if (
+    order.fulfillment_type !== "pickup" &&
+    ["ready", "ready_for_pickup"].includes(order.status) &&
+    !order.courier_user_id &&
+    readyAtMs &&
+    nowMs - readyAtMs >
+      PROBLEM_THRESHOLDS.noCourierMinutes * 60 * 1000
+  ) {
+    flags.push({
+      type: "no_courier_assigned",
+      severity: "high",
+      description: `Нет курьера > ${PROBLEM_THRESHOLDS.noCourierMinutes} минут`
+    });
+  }
+
+  if (
+    ["in_transit"].includes(order.status) &&
+    pickedUpMs &&
+    nowMs - pickedUpMs >
+      PROBLEM_THRESHOLDS.courierDelayMinutes * 60 * 1000
+  ) {
+    flags.push({
+      type: "courier_delay",
+      severity: "medium",
+      description: `В пути > ${PROBLEM_THRESHOLDS.courierDelayMinutes} минут`
+    });
+  }
+
+  if (
+    order.handoff_failed_attempts !== null &&
+    Number(order.handoff_failed_attempts || 0) >=
+      PROBLEM_THRESHOLDS.handoffFailedAttempts
+  ) {
+    flags.push({
+      type: "handoff_code_failed_attempts",
+      severity: "medium",
+      description: "Неудачные попытки ввода кода"
+    });
+  }
+
+  if (order.outlet_id) {
+    const cancelCount = countCancellationsByOutletStmt.get(order.outlet_id).count;
+    if (cancelCount >= PROBLEM_THRESHOLDS.frequentCancellations) {
+      flags.push({
+        type: "frequent_cancellations",
+        severity: "low",
+        description: "Частые отмены по точке за 7 дней"
+      });
+    }
+  }
+
+  if (order.courier_user_id) {
+    const cancelCount = countCancellationsByCourierStmt.get(order.courier_user_id).count;
+    if (cancelCount >= PROBLEM_THRESHOLDS.frequentCancellations) {
+      flags.push({
+        type: "frequent_cancellations",
+        severity: "low",
+        description: "Частые отмены по курьеру за 7 дней"
+      });
+    }
+  }
+
+  return flags;
+};
+
+const ensureProblemFlagsForOrder = (order) => {
+  const flags = computeProblemFlagsForOrder(order);
+  flags.forEach((flag) => {
+    const existing = getOpenProblemFlagStmt.get(order.id, flag.type);
+    if (existing) {
+      return;
+    }
+    insertProblemFlagStmt.run(
+      order.id,
+      flag.type,
+      flag.severity,
+      flag.description,
+      flag.meta ? JSON.stringify(flag.meta) : null
+    );
+  });
+  return flags;
+};
+
+const ensureProblemFlagsForOrders = (orders) => {
+  orders.forEach((order) => ensureProblemFlagsForOrder(order));
+};
+
+const listOpenProblemFlagsForOrders = (orderIds) => {
+  if (!orderIds.length) {
+    return {};
+  }
+  const placeholders = orderIds.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT id,
+              order_id,
+              type,
+              severity,
+              description,
+              created_at,
+              resolved_at
+       FROM problem_flags
+       WHERE resolved_at IS NULL AND order_id IN (${placeholders})`
+    )
+    .all(...orderIds);
+  return rows.reduce((acc, row) => {
+    if (!acc[row.order_id]) acc[row.order_id] = [];
+    acc[row.order_id].push(row);
+    return acc;
+  }, {});
+};
+
 const fetchOrderEventsMap = (orderIds) => {
   if (!orderIds.length) {
     return {};
@@ -2313,14 +3733,25 @@ const logUserAudit = ({ user_id, actor, action, before, after }) => {
   });
 };
 
-const logAudit = ({ entity_type, entity_id, action, actor_id, before, after }) => {
+const logAudit = ({
+  entity_type,
+  entity_id,
+  action,
+  actor_id,
+  actor_role,
+  request_id,
+  before,
+  after
+}) => {
   db.prepare(
-    "INSERT INTO audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?)"
+    "INSERT INTO audit_log (entity_type, entity_id, action, actor_user_id, actor_role, request_id, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
   ).run(
     entity_type,
     String(entity_id),
     action,
     actor_id ?? null,
+    actor_role ?? null,
+    request_id ?? null,
     before ? JSON.stringify(before) : null,
     after ? JSON.stringify(after) : null
   );
@@ -2369,14 +3800,17 @@ const canExposeHandoffCode = ({ order, role, userId, partnerId }) => {
   if (role === "partner") {
     return (
       Number(order.partner_id || 0) === Number(partnerId || 0) &&
-      ["accepted_by_restaurant", "ready_for_pickup", "picked_up"].includes(order.status)
+      ["ready_for_pickup", "ready"].includes(order.status)
     );
   }
   if (role === "client") {
-    return (
-      Number(order.client_user_id || 0) === Number(userId || 0) &&
-      ["accepted_by_restaurant", "ready_for_pickup", "picked_up"].includes(order.status)
-    );
+    if (Number(order.client_user_id || 0) !== Number(userId || 0)) {
+      return false;
+    }
+    if (order.fulfillment_type !== "pickup") {
+      return false;
+    }
+    return ["ready_for_pickup", "ready", "handed_over"].includes(order.status);
   }
   return false;
 };
@@ -2980,17 +4414,20 @@ const getOrderStmt = db.prepare(
           accepted_at, ready_at, picked_up_at, delivered_at, prep_eta_minutes,
           sla_due_at, sla_breached, total_amount, delivery_address, created_at,
           handoff_code_hash, handoff_code_encrypted, handoff_code_last4, handoff_code_expires_at, handoff_code_used_at,
-          fulfillment_type, food_total, commission_from_food, partner_net, service_fee
+          fulfillment_type, pickup_time, utensils_count, napkins_count, customer_comment, partner_comment, reject_reason,
+          handed_over_at, closed_at, food_total, commission_percent_snapshot, commission_from_food, partner_net, service_fee
    FROM orders WHERE id = ?`
 );
 const createOrderStmt = db.prepare(
   `INSERT INTO orders
     (order_number, outlet_id, client_user_id, courier_user_id, status, total_amount, delivery_address,
      handoff_code_hash, handoff_code_encrypted, handoff_code_last4, handoff_code_expires_at, fulfillment_type,
-     food_total, commission_from_food, partner_net, service_fee)
+     pickup_time, utensils_count, napkins_count, customer_comment, reject_reason,
+     food_total, commission_percent_snapshot, commission_from_food, partner_net, service_fee)
    VALUES (@order_number, @outlet_id, @client_user_id, @courier_user_id, @status, @total_amount, @delivery_address,
            @handoff_code_hash, @handoff_code_encrypted, @handoff_code_last4, @handoff_code_expires_at, @fulfillment_type,
-           @food_total, @commission_from_food, @partner_net, @service_fee)`
+           @pickup_time, @utensils_count, @napkins_count, @customer_comment, @reject_reason,
+           @food_total, @commission_percent_snapshot, @commission_from_food, @partner_net, @service_fee)`
 );
 const updateOrderStmt = db.prepare(
   `UPDATE orders
@@ -3189,16 +4626,128 @@ const updateOrderDeliverStmt = db.prepare(
 );
 const updateOrderHandoffStmt = db.prepare(
   `UPDATE orders
-   SET status = 'delivered',
-       delivered_at = @delivered_at,
+   SET status = @status,
+       delivered_at = COALESCE(@delivered_at, delivered_at),
+       handed_over_at = COALESCE(@handed_over_at, handed_over_at),
+       closed_at = COALESCE(@closed_at, closed_at),
        handoff_code_used_at = @handoff_code_used_at
    WHERE id = @id`
+);
+const updateOrderPartnerStatusStmt = db.prepare(
+  `UPDATE orders
+   SET status = @status,
+       accepted_at = COALESCE(@accepted_at, accepted_at),
+       ready_at = COALESCE(@ready_at, ready_at),
+       reject_reason = COALESCE(@reject_reason, reject_reason),
+       handed_over_at = COALESCE(@handed_over_at, handed_over_at),
+       closed_at = COALESCE(@closed_at, closed_at)
+   WHERE id = @id`
+);
+const updateOrderSnapshotStmt = db.prepare(
+  `UPDATE orders
+   SET food_total = @food_total,
+       service_fee = @service_fee,
+       commission_percent_snapshot = @commission_percent_snapshot,
+       commission_from_food = @commission_from_food,
+       partner_net = @partner_net
+   WHERE id = @id`
+);
+const updateOrderCourierStatusStmt = db.prepare(
+  `UPDATE orders
+   SET status = @status,
+       courier_user_id = COALESCE(@courier_user_id, courier_user_id),
+       courier_assigned_at = COALESCE(@courier_assigned_at, courier_assigned_at),
+       courier_picked_up_at = COALESCE(@courier_picked_up_at, courier_picked_up_at),
+       courier_delivered_at = COALESCE(@courier_delivered_at, courier_delivered_at),
+       picked_up_at = COALESCE(@picked_up_at, picked_up_at),
+       delivered_at = COALESCE(@delivered_at, delivered_at)
+   WHERE id = @id`
+);
+const updateOrderCourierAssignStmt = db.prepare(
+  `UPDATE orders
+   SET courier_user_id = @courier_user_id,
+       courier_assigned_at = @courier_assigned_at
+   WHERE id = @id`
+);
+const incrementHandoffFailedAttemptsStmt = db.prepare(
+  `UPDATE orders
+   SET handoff_failed_attempts = COALESCE(handoff_failed_attempts, 0) + 1
+   WHERE id = @id`
+);
+const resetHandoffFailedAttemptsStmt = db.prepare(
+  `UPDATE orders
+   SET handoff_failed_attempts = 0
+   WHERE id = @id`
+);
+const updateOrderCancelAdminStmt = db.prepare(
+  `UPDATE orders
+   SET status = 'cancelled',
+       cancelled_at = @cancelled_at,
+       cancel_source = @cancel_source,
+       cancel_reason = @cancel_reason,
+       penalty_amount = @penalty_amount
+   WHERE id = @id`
+);
+const createClientOrderStmt = db.prepare(
+  `INSERT INTO orders
+    (order_number, outlet_id, client_user_id, status, total_amount,
+     delivery_address, delivery_address_comment, fulfillment_type, pickup_time,
+     utensils_count, napkins_count, customer_comment,
+     handoff_code_hash, handoff_code_encrypted, handoff_code_last4, handoff_code_expires_at,
+     food_total, commission_percent_snapshot, commission_from_food, partner_net, service_fee)
+   VALUES (@order_number, @outlet_id, @client_user_id, @status, @total_amount,
+           @delivery_address, @delivery_address_comment, @fulfillment_type, @pickup_time,
+           @utensils_count, @napkins_count, @customer_comment,
+           @handoff_code_hash, @handoff_code_encrypted, @handoff_code_last4, @handoff_code_expires_at,
+           @food_total, @commission_percent_snapshot, @commission_from_food, @partner_net, @service_fee)`
+);
+const getOrderItemsSumStmt = db.prepare(
+  "SELECT SUM(total_price) as total FROM order_items WHERE order_id = ?"
 );
 const updateOrderAttemptsStmt = db.prepare(
   `UPDATE orders
    SET pickup_attempts = @pickup_attempts,
        pickup_locked_until = @pickup_locked_until
    WHERE id = @id`
+);
+const getOpenProblemFlagStmt = db.prepare(
+  `SELECT id
+   FROM problem_flags
+   WHERE order_id = ? AND type = ? AND resolved_at IS NULL`
+);
+const insertProblemFlagStmt = db.prepare(
+  `INSERT INTO problem_flags (order_id, type, severity, description, created_at, meta_json)
+   VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`
+);
+const resolveProblemFlagStmt = db.prepare(
+  `UPDATE problem_flags
+   SET resolved_at = @resolved_at,
+       resolved_by = @resolved_by
+   WHERE id = @id`
+);
+const listProblemFlagsStmt = db.prepare(
+  `SELECT id,
+          order_id,
+          type,
+          severity,
+          description,
+          created_at,
+          resolved_at,
+          resolved_by,
+          meta_json
+   FROM problem_flags
+   WHERE order_id = ? AND resolved_at IS NULL
+   ORDER BY created_at DESC`
+);
+const countCancellationsByOutletStmt = db.prepare(
+  `SELECT COUNT(*) as count
+   FROM orders
+   WHERE outlet_id = ? AND status = 'cancelled' AND datetime(created_at) >= datetime('now','-7 days')`
+);
+const countCancellationsByCourierStmt = db.prepare(
+  `SELECT COUNT(*) as count
+   FROM orders
+   WHERE courier_user_id = ? AND status = 'cancelled' AND datetime(created_at) >= datetime('now','-7 days')`
 );
 
 const deleteOrderStmt = db.prepare("DELETE FROM orders WHERE id = ?");
@@ -7468,7 +9017,7 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
       if (!order) {
         return sendError(res, 404, "NOT_FOUND", "Order not found");
       }
-      if (["delivered", "cancelled"].includes(order.status)) {
+      if (["delivered", "cancelled", "closed"].includes(order.status)) {
         return sendError(res, 409, "CONFLICT", "Order already завершен");
       }
       const role = getRole(req);
@@ -7487,11 +9036,19 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
           return sendError(res, 403, "FORBIDDEN", "Partner access denied");
         }
       }
+      if (order.fulfillment_type === "pickup") {
+        if (!partnerStatusGroups.ready.includes(order.status)) {
+          return sendError(res, 409, "INVALID_STATUS", "Нельзя выполнить действие в текущем статусе");
+        }
+      } else if (!["picked_up", "ready", "ready_for_pickup"].includes(order.status)) {
+        return sendError(res, 409, "INVALID_STATUS", "Нельзя выполнить действие в текущем статусе");
+      }
       if (!isHandoffCodeActive(order)) {
         return sendError(res, 409, "CONFLICT", "Handoff code expired");
       }
       const hash = hashHandoffCode(code);
       if (hash !== order.handoff_code_hash) {
+        incrementHandoffFailedAttemptsStmt.run({ id: order.id });
         logAudit({
           entity_type: "order",
           entity_id: order.id,
@@ -7503,11 +9060,16 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
         return sendError(res, 400, "INVALID_CODE", "Неверный код");
       }
       const now = nowIso();
+      const nextStatus = order.fulfillment_type === "pickup" ? "handed_over" : "delivered";
       updateOrderHandoffStmt.run({
         id: order.id,
-        delivered_at: now,
+        status: nextStatus,
+        delivered_at: nextStatus === "delivered" ? now : null,
+        handed_over_at: nextStatus === "handed_over" ? now : null,
+        closed_at: nextStatus === "handed_over" ? now : null,
         handoff_code_used_at: now
       });
+      resetHandoffFailedAttemptsStmt.run({ id: order.id });
       logOrderEvent({
         order_id: order.id,
         type: "handoff_confirmed",
@@ -7520,7 +9082,7 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
         action: "handoff_confirmed",
         actor_id: req.user?.id,
         before: order,
-        after: { status: "delivered", handoff_code_used_at: now }
+        after: { status: nextStatus, handoff_code_used_at: now }
       });
       res.json({ status: "ok" });
     }
@@ -7549,7 +9111,13 @@ app.post("/api/orders", requireRole(["admin", "operator"]), (req, res) => {
     handoff_code_last4: handoffCode.slice(-4),
     handoff_code_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     fulfillment_type: req.body.fulfillment_type ?? "delivery",
+    pickup_time: req.body.pickup_time ?? null,
+    utensils_count: req.body.utensils_count ?? null,
+    napkins_count: req.body.napkins_count ?? null,
+    customer_comment: req.body.customer_comment ?? null,
+    reject_reason: req.body.reject_reason ?? null,
     food_total: foodTotal,
+    commission_percent_snapshot: commissionPercent,
     commission_from_food: commissionFromFood,
     partner_net: partnerNet,
     service_fee: serviceFee
@@ -8030,6 +9598,8 @@ app.get("/api/audit", requireRole(["admin"]), (req, res) => {
               entity_id,
               action,
               actor_user_id,
+              actor_role,
+              request_id,
               before_json,
               after_json,
               created_at
@@ -8071,6 +9641,660 @@ app.get("/api/dashboard/summary", (_req, res) => {
     problem_orders: problemOrders
   });
 });
+
+app.get("/admin/dashboard/summary", requireRole(["admin", "support", "operator"]), (_req, res) => {
+  const activeOrders = db
+    .prepare(
+      "SELECT status, COUNT(*) as count FROM orders WHERE status NOT IN ('delivered','cancelled','closed') GROUP BY status"
+    )
+    .all();
+  const statusCounts = activeOrders.reduce((acc, row) => {
+    acc[row.status] = row.count;
+    return acc;
+  }, {});
+  const ordersToday = db
+    .prepare("SELECT COUNT(*) as count FROM orders WHERE DATE(created_at) = DATE('now')")
+    .get().count;
+  const cancelledToday = db
+    .prepare("SELECT COUNT(*) as count FROM orders WHERE status = 'cancelled' AND DATE(created_at) = DATE('now')")
+    .get().count;
+  const deliveredToday = db
+    .prepare("SELECT COUNT(*) as count FROM orders WHERE status = 'delivered' AND DATE(created_at) = DATE('now')")
+    .get().count;
+  const noCourierCount = db
+    .prepare(
+      "SELECT COUNT(*) as count FROM orders WHERE fulfillment_type != 'pickup' AND status IN ('ready','ready_for_pickup') AND courier_user_id IS NULL"
+    )
+    .get().count;
+
+  const activeRows = db
+    .prepare(
+      "SELECT id, status, created_at, accepted_at, ready_at, fulfillment_type, courier_user_id, outlet_id, handoff_failed_attempts, courier_picked_up_at, picked_up_at FROM orders WHERE status NOT IN ('delivered','cancelled','closed')"
+    )
+    .all();
+  ensureProblemFlagsForOrders(activeRows);
+
+  const problemCounts = db
+    .prepare(
+      `SELECT type, severity, COUNT(*) as count
+       FROM problem_flags
+       WHERE resolved_at IS NULL
+       GROUP BY type, severity`
+    )
+    .all();
+
+  const problemOrders = db
+    .prepare(
+      `SELECT orders.id,
+              orders.order_number,
+              orders.status,
+              orders.created_at,
+              outlets.name as outlet_name,
+              problem_flags.type,
+              problem_flags.severity
+       FROM problem_flags
+       JOIN orders ON orders.id = problem_flags.order_id
+       LEFT JOIN outlets ON outlets.id = orders.outlet_id
+       WHERE problem_flags.resolved_at IS NULL
+       ORDER BY problem_flags.severity DESC, problem_flags.created_at DESC
+       LIMIT 20`
+    )
+    .all();
+
+  res.json({
+    status_counts: statusCounts,
+    problem_counts: problemCounts,
+    no_courier_count: noCourierCount,
+    today: {
+      orders: ordersToday,
+      cancelled: cancelledToday,
+      delivered: deliveredToday
+    },
+    problem_orders: problemOrders
+  });
+});
+
+app.get("/admin/orders", requireRole(["admin", "support", "operator"]), (req, res) => {
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || 20);
+  const offset = (page - 1) * limit;
+  const { status, q, phone, date_from, date_to, fulfillment_type, hasProblem, sort } =
+    req.query;
+
+  const partnerIdParam = req.query.partnerId ?? req.query.partner_id ?? null;
+  const pointIdParam =
+    req.query.pointId ?? req.query.point_id ?? req.query.outlet_id ?? null;
+  const courierIdParam = req.query.courierId ?? req.query.courier_user_id ?? null;
+
+  const partnerIdNumber = partnerIdParam ? Number(partnerIdParam) : null;
+  const pointIdNumber = pointIdParam ? Number(pointIdParam) : null;
+  const courierIdNumber = courierIdParam ? Number(courierIdParam) : null;
+  const qValue = q ? `%${String(q)}%` : null;
+  const phoneValue = phone ? `%${String(phone)}%` : null;
+
+  const { conditions, params } = buildFilters([
+    {
+      value: qValue,
+      clause: "orders.order_number LIKE @q",
+      paramName: "q"
+    },
+    {
+      value: phoneValue,
+      clause: "clients.phone LIKE @phone",
+      paramName: "phone"
+    },
+    {
+      value: status || null,
+      clause: "orders.status = @status",
+      paramName: "status"
+    },
+    {
+      value:
+        partnerIdNumber !== null && !Number.isNaN(partnerIdNumber)
+          ? partnerIdNumber
+          : null,
+      clause: "partners.id = @partner_id",
+      paramName: "partner_id"
+    },
+    {
+      value:
+        pointIdNumber !== null && !Number.isNaN(pointIdNumber)
+          ? pointIdNumber
+          : null,
+      clause: "orders.outlet_id = @outlet_id",
+      paramName: "outlet_id"
+    },
+    {
+      value:
+        courierIdNumber !== null && !Number.isNaN(courierIdNumber)
+          ? courierIdNumber
+          : null,
+      clause: "orders.courier_user_id = @courier_user_id",
+      paramName: "courier_user_id"
+    },
+    {
+      value: fulfillment_type || null,
+      clause: "orders.fulfillment_type = @fulfillment_type",
+      paramName: "fulfillment_type"
+    },
+    {
+      value: date_from || null,
+      clause: "orders.created_at >= @date_from",
+      paramName: "date_from"
+    },
+    {
+      value: date_to || null,
+      clause: "orders.created_at <= @date_to",
+      paramName: "date_to"
+    }
+  ]);
+
+  if (hasProblem === "true") {
+    conditions.push(
+      "EXISTS (SELECT 1 FROM problem_flags WHERE problem_flags.order_id = orders.id AND problem_flags.resolved_at IS NULL)"
+    );
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const baseSql =
+    `SELECT orders.id,
+            orders.order_number,
+            orders.status,
+            orders.created_at,
+            orders.accepted_at,
+            orders.ready_at,
+            orders.fulfillment_type,
+            orders.handoff_failed_attempts,
+            orders.picked_up_at,
+            orders.courier_picked_up_at,
+            orders.total_amount,
+            orders.outlet_id,
+            orders.courier_user_id,
+            clients.phone as client_phone,
+            outlets.name as outlet_name,
+            partners.id as partner_id,
+            COALESCE(partners.display_name, partners.legal_name, partners.name) as partner_name,
+            COALESCE(
+              (
+                SELECT COUNT(*)
+                FROM problem_flags
+                WHERE problem_flags.order_id = orders.id
+                  AND problem_flags.resolved_at IS NULL
+              ),
+              0
+            ) as problems_count
+     FROM orders
+     LEFT JOIN clients ON clients.user_id = orders.client_user_id
+     LEFT JOIN outlets ON outlets.id = orders.outlet_id
+     LEFT JOIN partners ON partners.id = outlets.partner_id
+     ${where}`;
+
+  const total = db.prepare(`SELECT COUNT(*) as count FROM orders LEFT JOIN clients ON clients.user_id = orders.client_user_id LEFT JOIN outlets ON outlets.id = orders.outlet_id LEFT JOIN partners ON partners.id = outlets.partner_id ${where}`).get(params).count;
+
+  let orderBy = "orders.created_at DESC";
+  if (sort === "created_at:asc") orderBy = "orders.created_at ASC";
+  if (sort === "created_at:desc") orderBy = "orders.created_at DESC";
+  if (sort === "severity:desc") {
+    orderBy = "problems_count DESC, orders.created_at DESC";
+  }
+
+  const rows = db
+    .prepare(`${baseSql} ORDER BY ${orderBy} LIMIT @limit OFFSET @offset`)
+    .all({ ...params, limit, offset });
+
+  ensureProblemFlagsForOrders(rows);
+  const flagsMap = listOpenProblemFlagsForOrders(rows.map((row) => row.id));
+
+  const items = rows.map((row) => ({
+    ...row,
+    problem_flags: flagsMap[row.id] || [],
+    problems_count: row.problems_count ?? (flagsMap[row.id] || []).length
+  }));
+
+  res.json({ items, page, limit, total });
+});
+
+app.get("/admin/orders/:id", requireRole(["admin", "support", "operator"]), (req, res) => {
+  const id = Number(req.params.id);
+  const row = db
+    .prepare(
+      `SELECT orders.*,
+              outlets.partner_id as partner_id,
+              outlets.name as outlet_name,
+              clients.full_name as client_name,
+              clients.phone as client_phone,
+              users.tg_id as client_tg_id,
+              users.username as client_username
+       FROM orders
+       LEFT JOIN clients ON clients.user_id = orders.client_user_id
+       LEFT JOIN users ON users.id = orders.client_user_id
+       LEFT JOIN outlets ON outlets.id = orders.outlet_id
+       WHERE orders.id = ?`
+    )
+    .get(id);
+  if (!row) {
+    return sendError(res, 404, "NOT_FOUND", "Order not found");
+  }
+  const items = getOrderItemsStmt.all(id);
+  const events = db
+    .prepare(
+      `SELECT order_events.id,
+              order_events.type,
+              order_events.payload,
+              order_events.created_at,
+              order_events.actor_id,
+              users.username as actor_username
+       FROM order_events
+       LEFT JOIN users ON users.id = order_events.actor_id
+       WHERE order_events.order_id = ?
+       ORDER BY order_events.created_at ASC`
+    )
+    .all(id)
+    .map((event) => ({
+      ...event,
+      payload: normalizeEventPayload(event.payload)
+    }));
+  ensureProblemFlagsForOrder(row);
+  const flags = listProblemFlagsStmt.all(id);
+  const signals = computeOrderSignals(row, events);
+  const canSeeCode = canExposeHandoffCode({
+    order: row,
+    role: getRole(req),
+    userId: req.user?.id,
+    partnerId: row.partner_id
+  });
+  const handoffCode = canSeeCode ? decryptHandoffCode(row.handoff_code_encrypted) : null;
+  res.json({
+    ...row,
+    handoff_code: handoffCode,
+    items,
+    events,
+    problem_flags: flags,
+    ...signals
+  });
+});
+
+app.get(
+  "/admin/orders/:id/audit",
+  requireRole(["admin", "support", "operator"]),
+  (req, res) => {
+    const id = String(req.params.id);
+    const rows = db
+      .prepare(
+        `SELECT id,
+                entity_type,
+                entity_id,
+                action,
+                actor_user_id,
+                actor_role,
+                request_id,
+                before_json,
+                after_json,
+                created_at
+         FROM audit_log
+         WHERE entity_type = 'order' AND entity_id = ?
+         ORDER BY created_at DESC`
+      )
+      .all(id);
+    res.json(rows);
+  }
+);
+
+app.get("/admin/problem-flags", requireRole(["admin", "support", "operator"]), (req, res) => {
+  const { severity, type, resolved, order_id } = req.query;
+  const orderIdNumber = order_id ? Number(order_id) : null;
+  const { conditions, params } = buildFilters([
+    {
+      value: severity || null,
+      clause: "severity = @severity",
+      paramName: "severity"
+    },
+    {
+      value: type || null,
+      clause: "type = @type",
+      paramName: "type"
+    },
+    {
+      value:
+        orderIdNumber !== null && !Number.isNaN(orderIdNumber)
+          ? orderIdNumber
+          : null,
+      clause: "order_id = @order_id",
+      paramName: "order_id"
+    }
+  ]);
+  if (resolved === "true") {
+    conditions.push("resolved_at IS NOT NULL");
+  } else if (resolved === "false" || resolved === undefined) {
+    conditions.push("resolved_at IS NULL");
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const rows = db
+    .prepare(
+      `SELECT id,
+              order_id,
+              type,
+              severity,
+              description,
+              created_at,
+              resolved_at,
+              resolved_by,
+              meta_json
+       FROM problem_flags
+       ${where}
+       ORDER BY created_at DESC`
+    )
+    .all(params);
+  res.json({ items: rows });
+});
+
+app.patch(
+  "/admin/problem-flags/:id/resolve",
+  requireRole(["admin", "support", "operator"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const flag = db.prepare("SELECT * FROM problem_flags WHERE id = ?").get(id);
+    if (!flag) {
+      return sendError(res, 404, "NOT_FOUND", "Flag not found");
+    }
+    if (flag.resolved_at) {
+      return sendError(res, 409, "CONFLICT", "Flag already resolved");
+    }
+    const resolvedAt = nowIso();
+    const actorId = getActorId(req);
+    resolveProblemFlagStmt.run({
+      id,
+      resolved_at: resolvedAt,
+      resolved_by: actorId
+    });
+    logAudit({
+      entity_type: "order",
+      entity_id: flag.order_id,
+      action: "problem_flag_resolved",
+      actor_id: actorId,
+      actor_role: getRole(req),
+      request_id: getRequestId(req),
+      before: flag,
+      after: { ...flag, resolved_at: resolvedAt, resolved_by: actorId }
+    });
+    res.json({ status: "ok" });
+  }
+);
+
+app.get(
+  "/admin/couriers/leaderboard",
+  requireRole(["admin", "support", "operator"]),
+  (req, res) => {
+    const from = req.query.from ? String(req.query.from) : null;
+    const to = req.query.to ? String(req.query.to) : null;
+    const { conditions, params } = buildFilters([
+      {
+        value: from || null,
+        clause: "orders.created_at >= @date_from",
+        paramName: "date_from"
+      },
+      {
+        value: to || null,
+        clause: "orders.created_at <= @date_to",
+        paramName: "date_to"
+      }
+    ]);
+    const where = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
+    const rows = db
+      .prepare(
+        `SELECT orders.courier_user_id,
+                orders.status,
+                orders.created_at,
+                orders.picked_up_at,
+                orders.courier_picked_up_at,
+                orders.delivered_at,
+                orders.courier_delivered_at,
+                orders.penalty_amount,
+                couriers.rating_avg,
+                couriers.rating_count,
+                users.username
+         FROM orders
+         LEFT JOIN couriers ON couriers.user_id = orders.courier_user_id
+         LEFT JOIN users ON users.id = orders.courier_user_id
+         WHERE orders.courier_user_id IS NOT NULL ${where}`
+      )
+      .all(params);
+
+    const map = new Map();
+    rows.forEach((row) => {
+      if (!map.has(row.courier_user_id)) {
+        map.set(row.courier_user_id, {
+          courier_user_id: row.courier_user_id,
+          username: row.username,
+          rating_avg: row.rating_avg,
+          rating_count: row.rating_count,
+          delivered_count: 0,
+          cancel_count: 0,
+          penalty_sum: 0,
+          delivery_minutes_sum: 0,
+          delivery_minutes_count: 0
+        });
+      }
+      const entry = map.get(row.courier_user_id);
+      if (row.status === "delivered") {
+        entry.delivered_count += 1;
+        const start = toMs(row.courier_picked_up_at) ?? toMs(row.picked_up_at);
+        const end = toMs(row.courier_delivered_at) ?? toMs(row.delivered_at);
+        if (start && end && end > start) {
+          entry.delivery_minutes_sum += Math.round((end - start) / 60000);
+          entry.delivery_minutes_count += 1;
+        }
+      }
+      if (row.status === "cancelled") {
+        entry.cancel_count += 1;
+      }
+      entry.penalty_sum += Number(row.penalty_amount || 0);
+    });
+
+    const items = Array.from(map.values()).map((entry) => ({
+      ...entry,
+      avg_delivery_time: entry.delivery_minutes_count
+        ? Math.round(entry.delivery_minutes_sum / entry.delivery_minutes_count)
+        : null
+    }));
+    res.json({ items });
+  }
+);
+
+app.get(
+  "/admin/partners/payout-report",
+  requireRole(["admin", "support", "operator"]),
+  (req, res) => {
+    const from = req.query.from ? String(req.query.from) : null;
+    const to = req.query.to ? String(req.query.to) : null;
+    const { conditions, params } = buildFilters([
+      {
+        value: from || null,
+        clause: "orders.created_at >= @date_from",
+        paramName: "date_from"
+      },
+      {
+        value: to || null,
+        clause: "orders.created_at <= @date_to",
+        paramName: "date_to"
+      }
+    ]);
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = db
+      .prepare(
+        `SELECT partners.id as partner_id,
+                COALESCE(partners.display_name, partners.legal_name, partners.name) as partner_name,
+                partners.verification_status,
+                partners.payout_hold,
+                SUM(orders.food_total) as food_total_sum,
+                SUM(orders.commission_from_food) as commission_sum,
+                SUM(orders.partner_net) as partner_net_sum,
+                SUM(orders.service_fee) as service_fee_sum
+         FROM orders
+         LEFT JOIN outlets ON outlets.id = orders.outlet_id
+         LEFT JOIN partners ON partners.id = outlets.partner_id
+         ${where}
+         GROUP BY partners.id
+         ORDER BY partners.id DESC`
+      )
+      .all(params);
+    res.json({ items: rows });
+  }
+);
+
+app.get(
+  "/admin/orders/export",
+  requireRole(["admin", "support", "operator"]),
+  (req, res) => {
+    const { status, date_from, date_to, fulfillment_type, hasProblem } = req.query;
+    const partnerIdParam = req.query.partnerId ?? req.query.partner_id ?? null;
+    const pointIdParam =
+      req.query.pointId ?? req.query.point_id ?? req.query.outlet_id ?? null;
+    const courierIdParam = req.query.courierId ?? req.query.courier_user_id ?? null;
+    const partnerIdNumber = partnerIdParam ? Number(partnerIdParam) : null;
+    const pointIdNumber = pointIdParam ? Number(pointIdParam) : null;
+    const courierIdNumber = courierIdParam ? Number(courierIdParam) : null;
+    const { conditions, params } = buildFilters([
+      {
+        value: status || null,
+        clause: "orders.status = @status",
+        paramName: "status"
+      },
+      {
+        value:
+          partnerIdNumber !== null && !Number.isNaN(partnerIdNumber)
+            ? partnerIdNumber
+            : null,
+        clause: "partners.id = @partner_id",
+        paramName: "partner_id"
+      },
+      {
+        value:
+          pointIdNumber !== null && !Number.isNaN(pointIdNumber)
+            ? pointIdNumber
+            : null,
+        clause: "orders.outlet_id = @outlet_id",
+        paramName: "outlet_id"
+      },
+      {
+        value:
+          courierIdNumber !== null && !Number.isNaN(courierIdNumber)
+            ? courierIdNumber
+            : null,
+        clause: "orders.courier_user_id = @courier_user_id",
+        paramName: "courier_user_id"
+      },
+      {
+        value: fulfillment_type || null,
+        clause: "orders.fulfillment_type = @fulfillment_type",
+        paramName: "fulfillment_type"
+      },
+      {
+        value: date_from || null,
+        clause: "orders.created_at >= @date_from",
+        paramName: "date_from"
+      },
+      {
+        value: date_to || null,
+        clause: "orders.created_at <= @date_to",
+        paramName: "date_to"
+      }
+    ]);
+    if (hasProblem === "true") {
+      conditions.push(
+        "EXISTS (SELECT 1 FROM problem_flags WHERE problem_flags.order_id = orders.id AND problem_flags.resolved_at IS NULL)"
+      );
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = db
+      .prepare(
+        `SELECT orders.order_number,
+                orders.status,
+                orders.created_at,
+                orders.fulfillment_type,
+                orders.total_amount,
+                orders.food_total,
+                orders.service_fee,
+                orders.courier_user_id,
+                outlets.name as outlet_name,
+                partners.id as partner_id
+         FROM orders
+         LEFT JOIN outlets ON outlets.id = orders.outlet_id
+         LEFT JOIN partners ON partners.id = outlets.partner_id
+         ${where}
+         ORDER BY orders.created_at DESC`
+      )
+      .all(params);
+    const csv = toCsv(rows, [
+      { key: "order_number", label: "order_number" },
+      { key: "status", label: "status" },
+      { key: "created_at", label: "created_at" },
+      { key: "fulfillment_type", label: "fulfillment_type" },
+      { key: "total_amount", label: "total_amount" },
+      { key: "food_total", label: "food_total" },
+      { key: "service_fee", label: "service_fee" },
+      { key: "courier_user_id", label: "courier_user_id" },
+      { key: "outlet_name", label: "outlet_name" },
+      { key: "partner_id", label: "partner_id" }
+    ]);
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=\"orders.csv\"");
+    res.send(csv);
+  }
+);
+
+app.get(
+  "/admin/partners/payout-report/export",
+  requireRole(["admin", "support", "operator"]),
+  (req, res) => {
+    const from = req.query.from ? String(req.query.from) : null;
+    const to = req.query.to ? String(req.query.to) : null;
+    const { conditions, params } = buildFilters([
+      {
+        value: from || null,
+        clause: "orders.created_at >= @date_from",
+        paramName: "date_from"
+      },
+      {
+        value: to || null,
+        clause: "orders.created_at <= @date_to",
+        paramName: "date_to"
+      }
+    ]);
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = db
+      .prepare(
+        `SELECT partners.id as partner_id,
+                COALESCE(partners.display_name, partners.legal_name, partners.name) as partner_name,
+                partners.verification_status,
+                partners.payout_hold,
+                SUM(orders.food_total) as food_total_sum,
+                SUM(orders.commission_from_food) as commission_sum,
+                SUM(orders.partner_net) as partner_net_sum,
+                SUM(orders.service_fee) as service_fee_sum
+         FROM orders
+         LEFT JOIN outlets ON outlets.id = orders.outlet_id
+         LEFT JOIN partners ON partners.id = outlets.partner_id
+         ${where}
+         GROUP BY partners.id
+         ORDER BY partners.id DESC`
+      )
+      .all(params);
+    const csv = toCsv(rows, [
+      { key: "partner_id", label: "partner_id" },
+      { key: "partner_name", label: "partner_name" },
+      { key: "verification_status", label: "verification_status" },
+      { key: "payout_hold", label: "payout_hold" },
+      { key: "food_total_sum", label: "food_total_sum" },
+      { key: "commission_sum", label: "commission_sum" },
+      { key: "partner_net_sum", label: "partner_net_sum" },
+      { key: "service_fee_sum", label: "service_fee_sum" }
+    ]);
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=\"partner_payouts.csv\"");
+    res.send(csv);
+  }
+);
 
 app.get("/api/finance/ledger", (req, res) => {
   const { q, status, type, user_id, outlet_id, partner_id, date_from, date_to } =
@@ -8209,7 +10433,24 @@ app.delete("/api/finance/ledger/:id", requireRole(["admin"]), (req, res) => {
 
 setupCampaignRoutes({ app, db, requireRole, logAudit, nowIso, parseSort, getActorId });
 
+if (sentryDsn) {
+  app.use(Sentry.Handlers.errorHandler());
+}
+
+app.use((err, req, res, _next) => {
+  const requestId = getRequestId(req);
+  if (err?.message === "CORS not allowed") {
+    return res
+      .status(403)
+      .json({ message: "CORS blocked", code: "CORS_FORBIDDEN", requestId });
+  }
+  req.log?.error({ err, requestId }, "Unhandled error");
+  res
+    .status(500)
+    .json({ message: "Internal server error", code: "INTERNAL_ERROR", requestId });
+});
+
 app.listen(port, () => {
-  console.log(`Backend listening on port ${port}`);
+  logger.info({ port }, "Backend listening");
 });
 

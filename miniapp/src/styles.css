@@ -621,3 +621,76 @@ a {
 .combo-item:hover {
   background: rgba(255, 255, 255, 0.08);
 }
+
+.list-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--outline);
+  background: var(--surface-soft);
+}
+
+.card-title {
+  font-weight: 600;
+}
+
+.bottom-bar {
+  position: sticky;
+  bottom: 16px;
+  margin-top: 16px;
+  background: var(--surface);
+  border: 1px solid var(--outline);
+  border-radius: 16px;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.menu-qty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cart-summary {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--outline);
+  display: grid;
+  gap: 8px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+}
+
+.summary-row.total {
+  font-weight: 600;
+}
+
+.timeline {
+  margin-top: 16px;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--outline);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.timeline-row {
+  display: flex;
+  justify-content: space-between;
+}
