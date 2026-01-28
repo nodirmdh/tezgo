@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
@@ -952,6 +953,38 @@ const seedIfEmpty = (db) => {
   seedCampaigns(db);
 };
 
+const ensureAdminUsers = (db) => {
+  const adminUsername = process.env.ADMIN_USERNAME;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (adminUsername && adminPassword) {
+    const exists = db
+      .prepare("SELECT id FROM users WHERE username = ? AND role = 'admin'")
+      .get(adminUsername);
+    if (!exists) {
+      const now = nowIso();
+      const hash = bcrypt.hashSync(adminPassword, 12);
+      db.prepare(
+        "INSERT INTO users (tg_id, username, role, status, password_hash, must_change_password, created_at, updated_at) VALUES (?, ?, 'admin', 'active', ?, 0, ?, ?)"
+      ).run(`auth:${adminUsername}`, adminUsername, hash, now, now);
+    }
+  }
+
+  const supportUsername = process.env.SUPPORT_USERNAME;
+  const supportPassword = process.env.SUPPORT_PASSWORD;
+  if (supportUsername && supportPassword) {
+    const exists = db
+      .prepare("SELECT id FROM users WHERE username = ? AND role = 'support'")
+      .get(supportUsername);
+    if (!exists) {
+      const now = nowIso();
+      const hash = bcrypt.hashSync(supportPassword, 12);
+      db.prepare(
+        "INSERT INTO users (tg_id, username, role, status, password_hash, must_change_password, created_at, updated_at) VALUES (?, ?, 'support', 'active', ?, 0, ?, ?)"
+      ).run(`auth:${supportUsername}`, supportUsername, hash, now, now);
+    }
+  }
+};
+
 export const initDb = () => {
   const dbPath = resolveDbPath();
   ensureDir(dbPath);
@@ -961,5 +994,6 @@ export const initDb = () => {
   if (process.env.SEED_DATA === "true") {
     seedIfEmpty(db);
   }
+  ensureAdminUsers(db);
   return db;
 };

@@ -1,21 +1,16 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
+import { useAuth } from "./AuthProvider";
 
 const normalizeRole = (role) => String(role || "support").toLowerCase();
 
 export default function RoleGate({ allow = ["admin"], children }) {
-  const [allowed, setAllowed] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("adminAuth");
-    if (!stored) {
-      setAllowed(false);
-      return;
-    }
-    const role = normalizeRole(JSON.parse(stored).role);
-    setAllowed(allow.map(normalizeRole).includes(role));
-  }, [allow]);
+  const { user } = useAuth();
+  const allowed = useMemo(() => {
+    const role = normalizeRole(user?.role);
+    return allow.map(normalizeRole).includes(role);
+  }, [allow, user]);
 
   if (!allowed) {
     return null;

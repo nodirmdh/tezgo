@@ -312,6 +312,20 @@ textarea {
   background: var(--primary-hover);
 }
 
+.button.secondary {
+  background: #eef2ff;
+  color: #1e1b4b;
+}
+
+.button.secondary:hover {
+  background: #e0e7ff;
+}
+
+.form-error {
+  color: #b91c1c;
+  font-size: var(--font-12);
+}
+
 .auth-layout {
   min-height: 100vh;
   display: grid;

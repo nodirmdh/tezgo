@@ -11,6 +11,7 @@ import UserActivity from "./UserActivity";
 import UserAudit from "./UserAudit";
 import { translateRole, translateStatus } from "../../../lib/i18n";
 import { useLocale } from "../../components/LocaleProvider";
+import { useAuth } from "../../components/AuthProvider";
 
 const defaultOrders = { items: [], page: 1, page_size: 10, total: 0 };
 const SECTION_STORAGE_KEY = "admin.userProfileSection";
@@ -24,10 +25,10 @@ const allowedSections = new Set([
 
 export default function UserProfileClient({ userId, initialUser }) {
   const { locale, t } = useLocale();
+  const { user: authUser } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [user, setUser] = useState(initialUser);
-  const [role, setRole] = useState("Support");
   const [toast, setToast] = useState(null);
   const [activeSection, setActiveSection] = useState("overview");
   const [tabState, setTabState] = useState({
@@ -43,14 +44,7 @@ export default function UserProfileClient({ userId, initialUser }) {
     page_size: 10
   });
 
-  useEffect(() => {
-    const stored = localStorage.getItem("adminAuth");
-    if (!stored) {
-      return;
-    }
-    const parsed = JSON.parse(stored);
-    setRole(parsed.role || "Support");
-  }, []);
+  const role = authUser?.role || "support";
 
   useEffect(() => {
     const fromQuery = searchParams?.get("section");

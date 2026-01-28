@@ -1,22 +1,32 @@
-﻿"use client";
+"use client";
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "./AuthProvider";
 
 export default function AuthGuard({ children }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { user, loading, mustChangePassword } = useAuth();
 
   useEffect(() => {
-    if (pathname === "/login") {
+    if (loading) {
       return;
     }
-
-    const stored = localStorage.getItem("adminAuth");
-    if (!stored) {
-      router.replace("/login");
+    if (pathname === "/login") {
+      if (user) {
+        router.replace(mustChangePassword ? "/change-password" : "/");
+      }
+      return;
     }
-  }, [pathname, router]);
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
+    if (mustChangePassword && pathname !== "/change-password") {
+      router.replace("/change-password");
+    }
+  }, [loading, pathname, router, user, mustChangePassword]);
 
   return children;
 }

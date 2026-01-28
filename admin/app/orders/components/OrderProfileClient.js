@@ -9,25 +9,18 @@ import OrderOverview from "./OrderOverview";
 import OrderTimeline from "./OrderTimeline";
 import { translateStatus } from "../../../lib/i18n";
 import { useLocale } from "../../components/LocaleProvider";
+import { useAuth } from "../../components/AuthProvider";
 
 export default function OrderProfileClient({ orderId, initialOrder }) {
   const { locale, t } = useLocale();
+  const { user: authUser } = useAuth();
   const searchParams = useSearchParams();
   const [order, setOrder] = useState(initialOrder);
   const [events, setEvents] = useState([]);
   const [activeTab, setActiveTab] = useState("overview");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [role, setRole] = useState("support");
-
-  useEffect(() => {
-    const stored = localStorage.getItem("adminAuth");
-    if (!stored) {
-      return;
-    }
-    const parsed = JSON.parse(stored);
-    setRole(parsed.role || "support");
-  }, []);
+  const role = authUser?.role || "support";
 
   useEffect(() => {
     const tab = searchParams?.get("tab");

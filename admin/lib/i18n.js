@@ -18,8 +18,11 @@ const translations = {
     nav: {
       dashboard: "Дашборд",
       users: "Пользователи",
+      partnerUsers: "Аккаунты партнеров",
+      courierUsers: "Аккаунты курьеров",
       clients: "Клиенты",
       partners: "Партнеры",
+      points: "Точки партнёра",
       outlets: "Точки",
       couriers: "Курьеры",
       orders: "Заказы",
@@ -40,6 +43,7 @@ const translations = {
       edit: "Изменить",
       next: "Вперед",
       page: "Страница {page} из {total}",
+      loading: "Загрузка...",
       refresh: "Обновить",
       role: "Роль",
       save: "Сохранить",
@@ -51,11 +55,18 @@ const translations = {
     },
     auth: {
       title: "Вход в админку",
-      description: "Укажите Telegram ID и роль доступа.",
-      tgId: "Telegram ID",
-      tgPlaceholder: "Например: 123456789",
-      role: "Роль",
-      submit: "Войти"
+      description: "Введите логин и пароль администратора.",
+      identifier: "Логин (username или телефон)",
+      identifierPlaceholder: "Например: support_1",
+      password: "Пароль",
+      submit: "Войти",
+      loading: "Вход...",
+      changeTitle: "Смена пароля",
+      changeDescription: "Установите новый пароль для аккаунта.",
+      oldPassword: "Текущий пароль",
+      newPassword: "Новый пароль",
+      savePassword: "Сохранить пароль",
+      logout: "Выйти"
     },
     errors: {
       authRequired: "401: Требуется авторизация.",
@@ -113,6 +124,10 @@ const translations = {
       partners: {
         title: "Партнеры",
         description: "Партнеры и точки доставки."
+      },
+      points: {
+        title: "Точки партнёра",
+        description: "Список точек партнёров и меню."
       },
       outlets: {
         title: "Точки",
@@ -242,13 +257,13 @@ const translations = {
       delivered: "Доставил"
     },
     roles: {
-      admin: "admin",
-      support: "support",
-      operator: "operator",
-      "read-only": "read-only",
-      client: "client",
-      courier: "courier",
-      partner: "partner"
+      admin: "Administrator",
+      support: "Kómak xızmeti",
+      operator: "Operator",
+      "read-only": "Tek kóriw",
+      client: "Klient",
+      courier: "Kuryer",
+      partner: "Partnyor"
     },
     globalSearch: {
       placeholder: "Поиск по tg_id, имени или orderId",
@@ -498,6 +513,36 @@ const translations = {
         submitting: "Отправка...",
         required: "Укажите причину и сумму"
       },
+    },
+    usersAccounts: {
+      title: "Аккаунты {role}",
+      description: "Создание и управление логинами для роли {role}.",
+      createTitle: "Создать аккаунт",
+      listTitle: "Список аккаунтов",
+      username: "Username",
+      phoneOptional: "Телефон (опционально)",
+      passwordOptional: "Пароль (опционально)",
+      partnerOptional: "Партнер (опционально)",
+      partnerPlaceholder: "Выберите партнера",
+      create: "Создать",
+      resetPassword: "Сбросить пароль",
+      block: "Заблокировать",
+      unblock: "Разблокировать",
+      tempPasswordTitle: "Временный пароль",
+      resetPasswordTitle: "Новый временный пароль",
+      tempPasswordHint: "Покажите этот пароль пользователю один раз.",
+      validation: {
+        usernameRequired: "Введите username."
+      },
+      count: "Всего: {count}",
+      empty: "Пока нет аккаунтов.",
+      table: {
+        username: "Username",
+        phone: "Телефон",
+        status: "Статус",
+        mustChange: "Сменить пароль",
+        actions: "Действия"
+      }
     },
     clients: {
       profile: {
@@ -771,7 +816,20 @@ const translations = {
         phone2: "Телефон 2",
         phone3: "Телефон 3",
         outlets: "Точки",
-        status: "Статус"
+        status: "Статус",
+        displayName: "Отображаемое имя",
+        legalName: "Юр. название",
+        legalType: "Тип",
+        inn: "ИНН",
+        director: "Директор",
+        phone: "Телефон",
+        legalAddress: "Юр. адрес",
+        bank: "Банк",
+        bankAccount: "Счет",
+          bankMfo: "МФО/БИК",
+          verification: "Верификация",
+          commission: "Комиссия, %",
+          payoutHold: "Блокировка выплат"
       },
       actions: {
         block: "Заблокировать",
@@ -779,21 +837,44 @@ const translations = {
         noAccess: "Недостаточно прав",
         blockConfirm: "Заблокировать партнера?",
         unblockConfirm: "Разблокировать партнера?",
-        confirmDescription: "Статус обновится сразу после подтверждения."
+        confirmDescription: "Статус обновится сразу после подтверждения.",
+        title: "Действия",
+        verify: "Подтвердить",
+        reject: "Отклонить",
+        comment: "Комментарий",
+        commentPlaceholder: "Причина отклонения",
+        updateCommission: "Обновить комиссию"
       },
-      toasts: {
-        statusUpdated: "Статус обновлен",
-        noteAdded: "Заметка добавлена",
-        noteDeleted: "Заметка удалена"
+      verification: {
+        draft: "Черновик",
+        submitted: "На проверке",
+        verified: "Подтверждено",
+        rejected: "Отклонено"
       },
+        filters: {
+          allVerification: "Все статусы",
+          allHolds: "Все удержания",
+          onHold: "На удержании",
+          offHold: "Без удержания"
+        },
+        toasts: {
+          statusUpdated: "Статус обновлен",
+          noteAdded: "Заметка добавлена",
+          noteDeleted: "Заметка удалена",
+          verificationUpdated: "Статус верификации обновлен",
+          commissionUpdated: "Комиссия обновлена",
+          holdUpdated: "Блокировка выплат обновлена"
+        },
       searchPlaceholder: "Поиск партнера",
-      allStatuses: "Все статусы",
-      table: {
-        partner: "Партнер",
-        status: "Статус",
-        outlets: "Точки",
-        manager: "Менеджер"
-      },
+        table: {
+          partner: "Партнер",
+          status: "Статус",
+          outlets: "Точки",
+          manager: "Менеджер",
+          verification: "Верификация",
+          commission: "Комиссия",
+          payoutHold: "Удержание"
+        },
       notes: {
         title: "Заметки",
         note: "Заметка",
@@ -805,6 +886,31 @@ const translations = {
           turnover: "Оборот",
           commission: "Комиссии платформы",
           payouts: "Выплаты партнеру"
+        }
+      }
+    },
+    points: {
+      empty: "Точек пока нет",
+      table: {
+        name: "Точка",
+        partner: "Партнер",
+        status: "Статус"
+      },
+      toasts: {
+        saved: "Позиция сохранена",
+        availability: "Доступность обновлена"
+      },
+      menu: {
+        header: "Меню точки",
+        description: "Категории и позиции точки.",
+        title: "Меню — {name}",
+        empty: "Позиции отсутствуют",
+        noCategory: "Без категории",
+        table: {
+          name: "Позиция",
+          category: "Категория",
+          price: "Цена",
+          available: "Доступно"
         }
       }
     },
@@ -1298,8 +1404,11 @@ const translations = {
     nav: {
       dashboard: "Dashboard",
       users: "Foydalanuvchilar",
+      partnerUsers: "Hamkor akkauntlari",
+      courierUsers: "Kuryer akkauntlari",
       clients: "Mijozlar",
       partners: "Hamkorlar",
+      points: "Hamkor nuqtalari",
       outlets: "Shoxobchalar",
       couriers: "Kuryerlar",
       orders: "Buyurtmalar",
@@ -1320,6 +1429,7 @@ const translations = {
       edit: "Tahrirlash",
       next: "Keyingi",
       page: "{page} / {total} sahifa",
+      loading: "Yuklanmoqda...",
       refresh: "Yangilash",
       role: "Rol",
       save: "Saqlash",
@@ -1331,11 +1441,18 @@ const translations = {
     },
     auth: {
       title: "Admin panelga kirish",
-      description: "Telegram ID va rolni kiriting.",
-      tgId: "Telegram ID",
-      tgPlaceholder: "Masalan: 123456789",
-      role: "Rol",
-      submit: "Kirish"
+      description: "Login va parolni kiriting.",
+      identifier: "Login (username yoki telefon)",
+      identifierPlaceholder: "Masalan: support_1",
+      password: "Parol",
+      submit: "Kirish",
+      loading: "Kirish...",
+      changeTitle: "Parolni o'zgartirish",
+      changeDescription: "Hisob uchun yangi parol o'rnating.",
+      oldPassword: "Joriy parol",
+      newPassword: "Yangi parol",
+      savePassword: "Parolni saqlash",
+      logout: "Chiqish"
     },
     errors: {
       authRequired: "401: Avtorizatsiya talab qilinadi.",
@@ -1393,6 +1510,10 @@ const translations = {
       partners: {
         title: "Hamkorlar",
         description: "Hamkorlar va shoxobchalar."
+      },
+      points: {
+        title: "Hamkor nuqtalari",
+        description: "Hamkor nuqtalari va menyu."
       },
       outlets: {
         title: "Shoxobchalar",
@@ -1509,6 +1630,36 @@ const translations = {
         title: "Faollik"
       }
     },
+    usersAccounts: {
+      title: "{role} akkauntlari",
+      description: "{role} roli uchun loginlarni yaratish va boshqarish.",
+      createTitle: "Akkaunt yaratish",
+      listTitle: "Akkauntlar ro'yxati",
+      username: "Username",
+      phoneOptional: "Telefon (ixtiyoriy)",
+      passwordOptional: "Parol (ixtiyoriy)",
+      partnerOptional: "Hamkor (ixtiyoriy)",
+      partnerPlaceholder: "Hamkorni tanlang",
+      create: "Yaratish",
+      resetPassword: "Parolni tiklash",
+      block: "Bloklash",
+      unblock: "Blokdan chiqarish",
+      tempPasswordTitle: "Vaqtinchalik parol",
+      resetPasswordTitle: "Yangi vaqtinchalik parol",
+      tempPasswordHint: "Bu parolni foydalanuvchiga bir marta ko'rsating.",
+      validation: {
+        usernameRequired: "Username kiriting."
+      },
+      count: "Jami: {count}",
+      empty: "Hozircha akkauntlar yo'q.",
+      table: {
+        username: "Username",
+        phone: "Telefon",
+        status: "Holat",
+        mustChange: "Parolni almashtirish",
+        actions: "Amallar"
+      }
+    },
     status: {
       active: "Faol",
       blocked: "Bloklangan",
@@ -1522,13 +1673,13 @@ const translations = {
       delivered: "Yetkazildi"
     },
     roles: {
-      admin: "admin",
-      support: "support",
-      operator: "operator",
-      "read-only": "read-only",
-      client: "client",
-      courier: "courier",
-      partner: "partner"
+      admin: "Administrator",
+      support: "Qo'llab-quvvatlash",
+      operator: "Operator",
+      "read-only": "Faqat ko'rish",
+      client: "Mijoz",
+      courier: "Kuryer",
+      partner: "Hamkor"
     },
     globalSearch: {
       placeholder: "tg_id, ism yoki orderId bo'yicha qidirish",
@@ -2050,7 +2201,20 @@ const translations = {
         phone2: "Telefon 2",
         phone3: "Telefon 3",
         outlets: "Shoxobchalar",
-        status: "Holat"
+        status: "Holat",
+        displayName: "Ko'rsatiladigan nom",
+        legalName: "Yur. nomi",
+        legalType: "Turi",
+        inn: "INN",
+        director: "Direktor",
+        phone: "Telefon",
+        legalAddress: "Yur. manzil",
+        bank: "Bank",
+        bankAccount: "Hisob",
+          bankMfo: "MFO/BIK",
+          verification: "Tekshiruv",
+          commission: "Komissiya, %",
+          payoutHold: "To'lovlarni ushlab turish"
       },
       actions: {
         block: "Hamkorni bloklash",
@@ -2058,21 +2222,44 @@ const translations = {
         noAccess: "Ruxsat yo'q",
         blockConfirm: "Hamkorni bloklaysizmi?",
         unblockConfirm: "Hamkorni blokdan chiqarasizmi?",
-        confirmDescription: "Hamkor holati yangilanadi."
+        confirmDescription: "Hamkor holati yangilanadi.",
+        title: "Amallar",
+        verify: "Tasdiqlash",
+        reject: "Rad etish",
+        comment: "Izoh",
+        commentPlaceholder: "Rad etish sababi",
+        updateCommission: "Komissiyani yangilash"
       },
-      toasts: {
-        statusUpdated: "Holat yangilandi",
-        noteAdded: "Izoh qo'shildi",
-        noteDeleted: "Izoh o'chirildi"
+      verification: {
+        draft: "Qoralama",
+        submitted: "Tekshiruvda",
+        verified: "Tasdiqlangan",
+        rejected: "Rad etilgan"
       },
+        filters: {
+          allVerification: "Barcha holatlar",
+          allHolds: "Barcha ushlab turishlar",
+          onHold: "Ushlab turishda",
+          offHold: "Ushlab turilmaydi"
+        },
+        toasts: {
+          statusUpdated: "Holat yangilandi",
+          noteAdded: "Izoh qo'shildi",
+          noteDeleted: "Izoh o'chirildi",
+          verificationUpdated: "Tekshiruv holati yangilandi",
+          commissionUpdated: "Komissiya yangilandi",
+          holdUpdated: "To'lovlarni ushlab turish yangilandi"
+        },
       searchPlaceholder: "Nomi yoki menejer bo'yicha qidirish",
-      allStatuses: "Barcha holatlar",
-      table: {
-        partner: "Hamkor",
-        status: "Holat",
-        outlets: "Shoxobchalar",
-        manager: "Menejer"
-      },
+        table: {
+          partner: "Hamkor",
+          status: "Holat",
+          outlets: "Shoxobchalar",
+          manager: "Menejer",
+          verification: "Tekshiruv",
+          commission: "Komissiya",
+          payoutHold: "Ushlab turish"
+        },
       notes: {
         title: "Izohlar",
         note: "Izoh",
@@ -2084,6 +2271,31 @@ const translations = {
           turnover: "Aylanma",
           commission: "Platforma komissiyasi",
           payouts: "Hamkorga to'lovlar"
+        }
+      }
+    },
+    points: {
+      empty: "Nuqtalar hali yo'q",
+      table: {
+        name: "Nuqta",
+        partner: "Hamkor",
+        status: "Holat"
+      },
+      toasts: {
+        saved: "Pozitsiya saqlandi",
+        availability: "Mavjudlik yangilandi"
+      },
+      menu: {
+        header: "Nuqta menyusi",
+        description: "Nuqta kategoriyalari va pozitsiyalari.",
+        title: "Menyu — {name}",
+        empty: "Pozitsiyalar yo'q",
+        noCategory: "Kategoriyasiz",
+        table: {
+          name: "Pozitsiya",
+          category: "Kategoriya",
+          price: "Narx",
+          available: "Mavjud"
         }
       }
     },
@@ -2577,8 +2789,11 @@ const translations = {
     nav: {
       dashboard: "Dashboard",
       users: "Paydalaniwshılar",
+      partnerUsers: "Partnyor akkauntları",
+      courierUsers: "Kuryer akkauntları",
       clients: "Klientler",
       partners: "Partnyorlar",
+      points: "Partnyor noktalari",
       outlets: "Noktalár",
       couriers: "Kuryerler",
       orders: "Buyırtpalar",
@@ -2599,6 +2814,7 @@ const translations = {
       edit: "Ózgertiw",
       next: "Keyingi",
       page: "{page} / {total} bet",
+      loading: "Júklep atır...",
       refresh: "Jańalaw",
       role: "Ról",
       save: "Saqtaw",
@@ -2610,11 +2826,18 @@ const translations = {
     },
     auth: {
       title: "Admin panelge kiriw",
-      description: "Telegram ID hám rólni kiritin.",
-      tgId: "Telegram ID",
-      tgPlaceholder: "Mısal: 123456789",
-      role: "Ról",
-      submit: "Kiriw"
+      description: "Login hám paroldı kiritin.",
+      identifier: "Login (username yamasa telefon)",
+      identifierPlaceholder: "Mısal: support_1",
+      password: "Parol",
+      submit: "Kiriw",
+      loading: "Kiriw...",
+      changeTitle: "Paroldı ózgertiw",
+      changeDescription: "Akkaunt ushın jańa paroldı ornatıń.",
+      oldPassword: "Aldıńǵı parol",
+      newPassword: "Jańa parol",
+      savePassword: "Paroldı saqtaw",
+      logout: "Shıǵıw"
     },
     errors: {
       authRequired: "401: Avtorizatsiya kerek.",
@@ -2672,6 +2895,10 @@ const translations = {
       partners: {
         title: "Partnyorlar",
         description: "Partnyorlar hám noktalár."
+      },
+      points: {
+        title: "Partnyor noktalari",
+        description: "Partnyor noktalari hám menú."
       },
       outlets: {
         title: "Noktalár",
@@ -2759,6 +2986,36 @@ const translations = {
       },
       activity: {
         title: "Bel sende"
+      }
+    },
+    usersAccounts: {
+      title: "{role} akkauntları",
+      description: "{role} rólı ushın loginlerdi jaratıw hám basqarıw.",
+      createTitle: "Akkaunt jaratıw",
+      listTitle: "Akkauntlar dizimi",
+      username: "Username",
+      phoneOptional: "Telefon (ixtiyariy)",
+      passwordOptional: "Parol (ixtiyariy)",
+      partnerOptional: "Partnyor (ixtiyariy)",
+      partnerPlaceholder: "Partnyordı tańlań",
+      create: "Jaratıw",
+      resetPassword: "Paroldı qayta ornatıw",
+      block: "Bloklaw",
+      unblock: "Bloktan shıǵarıw",
+      tempPasswordTitle: "Waqıtınsha parol",
+      resetPasswordTitle: "Jańa waqıtınsha parol",
+      tempPasswordHint: "Bul paroldı paydalaniwshıǵa bir ret kórsetiń.",
+      validation: {
+        usernameRequired: "Username kiritiń."
+      },
+      count: "Bári: {count}",
+      empty: "Házirshe akkaunt joq.",
+      table: {
+        username: "Username",
+        phone: "Telefon",
+        status: "Hálat",
+        mustChange: "Paroldı ózgertiw",
+        actions: "Ámeller"
       }
     },
     orders: {
@@ -2961,13 +3218,13 @@ const translations = {
       delivered: "Jetkizildi"
     },
     roles: {
-      admin: "admin",
-      support: "support",
-      operator: "operator",
-      "read-only": "read-only",
-      client: "client",
-      courier: "courier",
-      partner: "partner"
+      admin: "Admin",
+      support: "Support",
+      operator: "Operator",
+      "read-only": "Read-only",
+      client: "Client",
+      courier: "Courier",
+      partner: "Partner"
     },
     globalSearch: {
       placeholder: "tg_id, atı yaki orderId boyınsha izlew",
@@ -2994,8 +3251,11 @@ const translations = {
     nav: {
       dashboard: "Dashboard",
       users: "Users",
+      partnerUsers: "Partner accounts",
+      courierUsers: "Courier accounts",
       clients: "Clients",
       partners: "Partners",
+      points: "Partner points",
       outlets: "Outlets",
       couriers: "Couriers",
       orders: "Orders",
@@ -3016,6 +3276,7 @@ const translations = {
       edit: "Edit",
       next: "Next",
       page: "Page {page} of {total}",
+      loading: "Loading...",
       refresh: "Refresh",
       role: "Role",
       save: "Save",
@@ -3027,11 +3288,18 @@ const translations = {
     },
     auth: {
       title: "Admin login",
-      description: "Enter Telegram ID and access role.",
-      tgId: "Telegram ID",
-      tgPlaceholder: "For example: 123456789",
-      role: "Role",
-      submit: "Sign in"
+      description: "Enter username and password.",
+      identifier: "Username or phone",
+      identifierPlaceholder: "e.g. support_1",
+      password: "Password",
+      submit: "Sign in",
+      loading: "Signing in...",
+      changeTitle: "Change password",
+      changeDescription: "Set a new password for your account.",
+      oldPassword: "Current password",
+      newPassword: "New password",
+      savePassword: "Save password",
+      logout: "Log out"
     },
     errors: {
       authRequired: "401: Authorization required.",
@@ -3089,6 +3357,10 @@ const translations = {
       partners: {
         title: "Partners",
         description: "Partners and outlets."
+      },
+      points: {
+        title: "Partner points",
+        description: "Partner points and menu."
       },
       outlets: {
         title: "Outlets",
@@ -3203,6 +3475,36 @@ const translations = {
       },
       activity: {
         title: "Activity"
+      }
+    },
+    usersAccounts: {
+      title: "{role} accounts",
+      description: "Create and manage logins for role {role}.",
+      createTitle: "Create account",
+      listTitle: "Account list",
+      username: "Username",
+      phoneOptional: "Phone (optional)",
+      passwordOptional: "Password (optional)",
+      partnerOptional: "Partner (optional)",
+      partnerPlaceholder: "Select partner",
+      create: "Create",
+      resetPassword: "Reset password",
+      block: "Block",
+      unblock: "Unblock",
+      tempPasswordTitle: "Temporary password",
+      resetPasswordTitle: "New temporary password",
+      tempPasswordHint: "Show this password to the user once.",
+      validation: {
+        usernameRequired: "Enter a username."
+      },
+      count: "Total: {count}",
+      empty: "No accounts yet.",
+      table: {
+        username: "Username",
+        phone: "Phone",
+        status: "Status",
+        mustChange: "Change password",
+        actions: "Actions"
       }
     },
     status: {
@@ -3746,7 +4048,20 @@ const translations = {
         phone2: "Phone 2",
         phone3: "Phone 3",
         outlets: "Outlets",
-        status: "Status"
+        status: "Status",
+        displayName: "Display name",
+        legalName: "Legal name",
+        legalType: "Legal type",
+        inn: "Tax ID",
+        director: "Director",
+        phone: "Phone",
+        legalAddress: "Legal address",
+        bank: "Bank",
+        bankAccount: "Account",
+        bankMfo: "MFO/BIK",
+        verification: "Verification",
+        commission: "Commission, %",
+        payoutHold: "Payout hold"
       },
       actions: {
         block: "Block partner",
@@ -3754,20 +4069,43 @@ const translations = {
         noAccess: "No access",
         blockConfirm: "Block this partner?",
         unblockConfirm: "Unblock this partner?",
-        confirmDescription: "This action will update partner status."
+        confirmDescription: "This action will update partner status.",
+        title: "Actions",
+        verify: "Verify",
+        reject: "Reject",
+        comment: "Comment",
+        commentPlaceholder: "Rejection reason",
+        updateCommission: "Update commission"
+      },
+      verification: {
+        draft: "Draft",
+        submitted: "Submitted",
+        verified: "Verified",
+        rejected: "Rejected"
+      },
+      filters: {
+        allVerification: "All verification statuses",
+        allHolds: "All holds",
+        onHold: "On hold",
+        offHold: "No hold"
       },
       toasts: {
         statusUpdated: "Status updated",
         noteAdded: "Note added",
-        noteDeleted: "Note deleted"
+        noteDeleted: "Note deleted",
+        verificationUpdated: "Verification status updated",
+        commissionUpdated: "Commission updated",
+        holdUpdated: "Payout hold updated"
       },
       searchPlaceholder: "Search by name or manager",
-      allStatuses: "All statuses",
       table: {
         partner: "Partner",
         status: "Status",
         outlets: "Outlets",
-        manager: "Manager"
+        manager: "Manager",
+        verification: "Verification",
+        commission: "Commission",
+        payoutHold: "Hold"
       },
       notes: {
         title: "Notes",
@@ -3780,6 +4118,31 @@ const translations = {
           turnover: "Turnover",
           commission: "Platform commission",
           payouts: "Partner payouts"
+        }
+      }
+    },
+    points: {
+      empty: "No points yet",
+      table: {
+        name: "Point",
+        partner: "Partner",
+        status: "Status"
+      },
+      toasts: {
+        saved: "Item saved",
+        availability: "Availability updated"
+      },
+      menu: {
+        header: "Point menu",
+        description: "Point categories and items.",
+        title: "Menu — {name}",
+        empty: "No items yet",
+        noCategory: "No category",
+        table: {
+          name: "Item",
+          category: "Category",
+          price: "Price",
+          available: "Available"
         }
       }
     },

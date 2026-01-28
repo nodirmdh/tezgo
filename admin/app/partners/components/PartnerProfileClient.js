@@ -10,16 +10,18 @@ import PartnerFinance from "./PartnerFinance";
 import PartnerNotes from "./PartnerNotes";
 import { translateStatus } from "../../../lib/i18n";
 import { useLocale } from "../../components/LocaleProvider";
+import { useAuth } from "../../components/AuthProvider";
 
 const emptyOutlets = { items: [], page: 1, limit: 10, total: 0 };
 
 export default function PartnerProfileClient({ partnerId, initialPartner }) {
   const { locale, t } = useLocale();
+  const { user: authUser } = useAuth();
   const [partner, setPartner] = useState(initialPartner);
   const [activeTab, setActiveTab] = useState("overview");
   const [toast, setToast] = useState(null);
-  const [authorTgId, setAuthorTgId] = useState(null);
-  const [role, setRole] = useState("support");
+  const authorTgId = authUser?.tg_id || null;
+  const role = authUser?.role || "support";
   const [tabState, setTabState] = useState({
     outlets: { data: emptyOutlets, loading: false, error: null },
     finance: { data: { summary: [], transactions: [] }, loading: false, error: null },
@@ -27,18 +29,8 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
   });
   const [outletFilters, setOutletFilters] = useState({ page: 1, limit: 10 });
 
-  useEffect(() => {
-    const stored = localStorage.getItem("adminAuth");
-    if (!stored) {
-      return;
-    }
-    const parsed = JSON.parse(stored);
-    setRole(parsed.role || "support");
-    setAuthorTgId(parsed.tgId || null);
-  }, []);
-
   const reloadPartner = async () => {
-    const result = await apiJson(`/api/partners/${partnerId}`);
+    const result = await apiJson(`/admin/partners/${partnerId}`);
     if (!result.ok) {
       setToast({ type: "error", message: t(result.error) });
       return;
@@ -133,6 +125,45 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
     reloadPartner();
   };
 
+  const handleVerify = async ({ action, comment }) => {
+    const result = await apiJson(`/admin/partners/${partnerId}/verify`, {
+      method: "PATCH",
+      body: JSON.stringify({ action, comment })
+    });
+    if (!result.ok) {
+      setToast({ type: "error", message: t(result.error) });
+      return;
+    }
+    setToast({ type: "success", message: t("partners.toasts.verificationUpdated") });
+    reloadPartner();
+  };
+
+  const handleCommissionUpdate = async (commissionPercent) => {
+    const result = await apiJson(`/admin/partners/${partnerId}/commission`, {
+      method: "PATCH",
+      body: JSON.stringify({ commission_percent: commissionPercent })
+    });
+    if (!result.ok) {
+      setToast({ type: "error", message: t(result.error) });
+      return;
+    }
+    setToast({ type: "success", message: t("partners.toasts.commissionUpdated") });
+    reloadPartner();
+  };
+
+  const handlePayoutHold = async (value) => {
+    const result = await apiJson(`/admin/partners/${partnerId}/payout-hold`, {
+      method: "PATCH",
+      body: JSON.stringify({ payout_hold: value })
+    });
+    if (!result.ok) {
+      setToast({ type: "error", message: t(result.error) });
+      return;
+    }
+    setToast({ type: "success", message: t("partners.toasts.holdUpdated") });
+    reloadPartner();
+  };
+
   const handleAddNote = async (text) => {
     const result = await apiJson(`/api/partners/${partnerId}/notes`, {
       method: "POST",
@@ -183,7 +214,14 @@ export default function PartnerProfileClient({ partnerId, initialPartner }) {
       <PartnerTabs active={activeTab} onChange={setActiveTab} />
 
       {activeTab === "overview" ? (
-        <PartnerOverview partner={partner} role={role} onBlockToggle={handleBlockToggle} />
+        <PartnerOverview
+          partner={partner}
+          role={role}
+          onBlockToggle={handleBlockToggle}
+          onVerify={handleVerify}
+          onCommissionUpdate={handleCommissionUpdate}
+          onPayoutHold={handlePayoutHold}
+        />
       ) : null}
       {activeTab === "outlets" ? (
         <PartnerOutlets

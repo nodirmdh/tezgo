@@ -1,3 +1,5 @@
+import { useAuth } from "../auth/AuthContext";
+
 const availableOrders = [
   { number: "ORD-1051", pickup: "Burger Way", distance: "2.1 км" },
   { number: "ORD-1052", pickup: "Green Market", distance: "3.4 км" }
@@ -9,6 +11,7 @@ const routeStops = [
 ];
 
 export default function CourierPage() {
+  const { user, logout } = useAuth();
   return (
     <section className="page">
       <div className="page-header">
@@ -16,7 +19,12 @@ export default function CourierPage() {
           <p className="eyebrow">Courier mini app</p>
           <h2>Доступные заказы и маршрут</h2>
         </div>
-        <div className="status-chip success">На смене</div>
+        <div className="status-chip success">User: {user?.username || user?.id}</div>
+      </div>
+      <div className="action-row">
+        <button className="ghost" type="button" onClick={logout}>
+          Log out
+        </button>
       </div>
       <div className="grid two">
         <div className="panel">

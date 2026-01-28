@@ -1,4 +1,4 @@
-# Домены и сущности
+﻿# Домены и сущности
 
 ## Users
 - id, tg_id, username, created_at, status
@@ -25,7 +25,28 @@
 - created_by_role, created_by_tg_id, created_at
 
 ## Partners
-- id, name
+- id, name, display_name, legal_name, inn, legal_type
+- director_full_name, phone, email, legal_address
+- bank_account, bank_name, bank_mfo
+- verification_status, verification_comment
+- payout_hold, commission_percent
+- created_at, updated_at
+
+## Partner Users
+- user_id, partner_id, role_in_partner
+
+## Points
+- id, partner_id, name, address, address_comment
+- phone, work_hours, status, created_at, updated_at
+
+## Menu Categories (points)
+- id, point_id, name, name_normalized
+- created_at, updated_at
+
+## Menu Items (points)
+- id, point_id, category_id
+- name, description, price, is_available, photo_url
+- created_at, updated_at
 
 ## Outlets
 - id, partner_id, type, name, address, lat, lng, is_active
@@ -58,6 +79,9 @@
 - total_weight_grams, distance_meters
 - created_at, accepted_at, ready_at, picked_up_at, delivered_at, cancelled_at
 - prep_eta_minutes, pickup_code_hash, pickup_attempts
+- handoff_code_hash, handoff_code_encrypted, handoff_code_last4
+- handoff_code_expires_at, handoff_code_used_at
+- fulfillment_type, food_total, commission_from_food, partner_net
 
 ## Cancel Reasons
 - code, group_code

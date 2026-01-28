@@ -1,7 +1,11 @@
 {
-  "/outlets/page": "app/outlets/page.js",
-  "/partners/page": "app/partners/page.js",
-  "/orders/page": "app/orders/page.js",
-  "/finance/page": "app/finance/page.js",
-  "/promos/page": "app/promos/page.js"
+  "/promos/page": "app/promos/page.js",
+  "/campaigns/[id]/page": "app/campaigns/[id]/page.js",
+  "/clients/page": "app/clients/page.js",
+  "/users/page": "app/users/page.js",
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/users/couriers/page": "app/users/couriers/page.js",
+  "/partners/page": "app/partners/page.js"
 }

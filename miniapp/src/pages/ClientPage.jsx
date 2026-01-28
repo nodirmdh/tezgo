@@ -1,3 +1,5 @@
+import { useAuth } from "../auth/AuthContext";
+
 const catalog = [
   {
     title: "Burger Way",
@@ -25,6 +27,7 @@ const activeOrder = {
 };
 
 export default function ClientPage() {
+  const { user, logout } = useAuth();
   return (
     <section className="page">
       <div className="page-header">
@@ -32,7 +35,12 @@ export default function ClientPage() {
           <p className="eyebrow">Client mini app</p>
           <h2>Каталог и активный заказ</h2>
         </div>
-        <div className="status-chip">Город: Нукус</div>
+        <div className="status-chip">User: {user?.phone || user?.username || user?.id}</div>
+      </div>
+      <div className="action-row">
+        <button className="ghost" type="button" onClick={logout}>
+          Log out
+        </button>
       </div>
       <div className="grid two">
         <div className="panel">

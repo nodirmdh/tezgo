@@ -19,6 +19,7 @@ import { getClientAddresses } from "../../../lib/api/clientAddressesApi";
 import { getClientPromos } from "../../../lib/api/clientPromosApi";
 import { translateStatus } from "../../../lib/i18n";
 import { useLocale } from "../../components/LocaleProvider";
+import { useAuth } from "../../components/AuthProvider";
 
 const emptyMetrics = {
   ordersCount: 0,
@@ -29,6 +30,7 @@ const emptyMetrics = {
 
 export default function ClientProfileClient({ clientId, initialClient }) {
   const { locale, t } = useLocale();
+  const { user: authUser } = useAuth();
   const [client, setClient] = useState(initialClient);
   const [metrics, setMetrics] = useState(emptyMetrics);
   const [metricsLoading, setMetricsLoading] = useState(false);
@@ -70,18 +72,8 @@ export default function ClientProfileClient({ clientId, initialClient }) {
   const [rewardsTab, setRewardsTab] = useState("promos");
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
-  const [role, setRole] = useState("support");
-  const [authorTgId, setAuthorTgId] = useState(null);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("adminAuth");
-    if (!stored) {
-      return;
-    }
-    const parsed = JSON.parse(stored);
-    setRole(normalizeRole(parsed.role));
-    setAuthorTgId(parsed.tgId || null);
-  }, []);
+  const role = normalizeRole(authUser?.role);
+  const authorTgId = authUser?.tg_id || null;
 
   const loadMetrics = async () => {
     setMetricsLoading(true);

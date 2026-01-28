@@ -7,6 +7,7 @@ import useConfirm from "../../components/useConfirm";
 import { apiJson } from "../../../lib/api/client";
 import { normalizeRole } from "../../../lib/rbac";
 import { useLocale } from "../../components/LocaleProvider";
+import { useAuth } from "../../components/AuthProvider";
 
 const deliveryOptions = [
   { value: "courier", labelKey: "outlets.menu.profile.delivery.courier" },
@@ -152,22 +153,14 @@ const buildDraft = (item) => ({
 export default function ItemProfileClient({ outletId, itemId, initialItem }) {
   const router = useRouter();
   const { t } = useLocale();
+  const { user: authUser } = useAuth();
   const [item, setItem] = useState(initialItem);
   const [draft, setDraft] = useState(buildDraft(initialItem));
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
-  const [role, setRole] = useState("support");
+  const role = normalizeRole(authUser?.role);
   const [categories, setCategories] = useState([]);
   const { confirm, dialog } = useConfirm();
-
-  useEffect(() => {
-    const stored = localStorage.getItem("adminAuth");
-    if (!stored) {
-      return;
-    }
-    const parsed = JSON.parse(stored);
-    setRole(normalizeRole(parsed.role));
-  }, []);
 
   useEffect(() => {
     setDraft(buildDraft(item));

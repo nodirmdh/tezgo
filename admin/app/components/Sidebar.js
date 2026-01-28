@@ -1,15 +1,19 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { useLocale } from "./LocaleProvider";
+import { useAuth } from "./AuthProvider";
 
 const navItems = [
   { href: "/dashboard", labelKey: "nav.dashboard", roles: ["admin", "support", "operator", "read-only"] },
   { href: "/users", labelKey: "nav.users", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/users/partners", labelKey: "nav.partnerUsers", roles: ["admin", "support"] },
+  { href: "/users/couriers", labelKey: "nav.courierUsers", roles: ["admin", "support"] },
   { href: "/clients", labelKey: "nav.clients", roles: ["admin", "support", "operator", "read-only"] },
   { href: "/partners", labelKey: "nav.partners", roles: ["admin", "support", "operator", "read-only"] },
+  { href: "/points", labelKey: "nav.points", roles: ["admin", "support", "operator", "read-only"] },
   { href: "/outlets", labelKey: "nav.outlets", roles: ["admin", "support", "operator", "read-only"] },
   { href: "/couriers", labelKey: "nav.couriers", roles: ["admin", "support", "operator", "read-only"] },
   { href: "/orders", labelKey: "nav.orders", roles: ["admin", "support", "operator", "read-only"] },
@@ -22,17 +26,9 @@ const normalizeRole = (role) => String(role || "support").toLowerCase();
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const [role, setRole] = useState("support");
   const { t } = useLocale();
-
-  useEffect(() => {
-    const stored = localStorage.getItem("adminAuth");
-    if (!stored) {
-      return;
-    }
-    const parsed = JSON.parse(stored);
-    setRole(normalizeRole(parsed.role));
-  }, []);
+  const { user } = useAuth();
+  const role = useMemo(() => normalizeRole(user?.role), [user]);
 
   return (
     <aside className="sidebar">

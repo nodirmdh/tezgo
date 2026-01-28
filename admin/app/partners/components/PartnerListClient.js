@@ -1,43 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Toast from "../../components/Toast";
 import useConfirm from "../../components/useConfirm";
 import { apiJson } from "../../../lib/api/client";
-import { translateStatus } from "../../../lib/i18n";
 import { useLocale } from "../../components/LocaleProvider";
 
 export default function PartnerListClient() {
   const { locale, t } = useLocale();
-  const [filters, setFilters] = useState({ q: "", status: "", page: 1, limit: 10 });
+  const [filters, setFilters] = useState({ status: "", payout_hold: "", page: 1, limit: 10 });
   const [data, setData] = useState({ items: [], page: 1, limit: 10, total: 0 });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [error, setError] = useState(null);
   const { confirm, dialog } = useConfirm();
 
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil((data.total || 0) / (data.limit || 10))),
-    [data.total, data.limit]
-  );
-
   const fetchPartners = async () => {
     setLoading(true);
     setError(null);
-    const params = new URLSearchParams({
-      q: filters.q,
-      status: filters.status,
-      page: String(filters.page),
-      limit: String(filters.limit)
-    }).toString();
-    const result = await apiJson(`/api/partners/list?${params}`);
+    const params = new URLSearchParams({});
+    if (filters.status) {
+      params.set("status", filters.status);
+    }
+    if (filters.payout_hold) {
+      params.set("payout_hold", filters.payout_hold);
+    }
+    const result = await apiJson(`/admin/partners?${params.toString()}`);
     if (!result.ok) {
       setError(result.error);
       setLoading(false);
       return;
     }
-    setData(result.data);
+    const items = result.data.items || [];
+    setData({ items, page: 1, limit: items.length, total: items.length });
     setLoading(false);
   };
 
@@ -79,14 +75,6 @@ export default function PartnerListClient() {
       {dialog}
       <div className="toolbar">
         <div className="toolbar-actions">
-          <input
-            className="input"
-            placeholder={t("partners.searchPlaceholder")}
-            value={filters.q}
-            onChange={(event) =>
-              setFilters({ ...filters, q: event.target.value, page: 1 })
-            }
-          />
           <select
             className="select"
             value={filters.status}
@@ -94,12 +82,23 @@ export default function PartnerListClient() {
               setFilters({ ...filters, status: event.target.value, page: 1 })
             }
           >
-            <option value="">{t("partners.allStatuses")}</option>
-            {["active", "blocked"].map((status) => (
+            <option value="">{t("partners.filters.allVerification")}</option>
+            {["draft", "submitted", "verified", "rejected"].map((status) => (
               <option key={status} value={status}>
-                {translateStatus(locale, status)}
+                {t(`partners.verification.${status}`)}
               </option>
             ))}
+          </select>
+          <select
+            className="select"
+            value={filters.payout_hold}
+            onChange={(event) =>
+              setFilters({ ...filters, payout_hold: event.target.value, page: 1 })
+            }
+          >
+            <option value="">{t("partners.filters.allHolds")}</option>
+            <option value="true">{t("partners.filters.onHold")}</option>
+            <option value="false">{t("partners.filters.offHold")}</option>
           </select>
         </div>
       </div>
@@ -116,21 +115,23 @@ export default function PartnerListClient() {
           <thead>
             <tr>
               <th>{t("partners.table.partner")}</th>
-              <th>{t("partners.table.status")}</th>
-              <th>{t("partners.table.outlets")}</th>
-              <th>{t("partners.table.manager")}</th>
+              <th>{t("partners.table.verification")}</th>
+              <th>{t("partners.table.commission")}</th>
+              <th>{t("partners.table.payoutHold")}</th>
               <th>{t("common.actions")}</th>
             </tr>
           </thead>
           <tbody>
             {data.items.map((partner) => (
               <tr key={partner.id}>
-                <td>{partner.name}</td>
+                <td>{partner.display_name || partner.name || partner.legal_name}</td>
                 <td>
-                  <span className="badge">{translateStatus(locale, partner.status || "active")}</span>
+                  <span className="badge">
+                    {t(`partners.verification.${partner.verification_status || "draft"}`)}
+                  </span>
                 </td>
-                <td>{partner.outlets_count}</td>
-                <td>{partner.manager || "-"}</td>
+                <td>{Number(partner.commission_percent || 0).toFixed(2)}%</td>
+                <td>{partner.payout_hold ? t("common.yes") : t("common.no")}</td>
                 <td>
                   <div className="table-actions">
                     <Link className="action-link" href={`/partners/${partner.id}`}>
@@ -152,34 +153,6 @@ export default function PartnerListClient() {
           </tbody>
         </table>
       )}
-      <div className="pagination">
-        <button
-          className="button"
-          type="button"
-          disabled={filters.page <= 1}
-          onClick={() =>
-            setFilters({ ...filters, page: Math.max(1, filters.page - 1) })
-          }
-        >
-          {t("common.back")}
-        </button>
-        <div className="helper-text">
-          {t("common.page", { page: filters.page, total: totalPages })}
-        </div>
-        <button
-          className="button"
-          type="button"
-          disabled={filters.page >= totalPages}
-          onClick={() =>
-            setFilters({
-              ...filters,
-              page: Math.min(totalPages, filters.page + 1)
-            })
-          }
-        >
-          {t("common.next")}
-        </button>
-      </div>
     </section>
   );
 }

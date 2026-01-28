@@ -3,26 +3,29 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useLocale } from "../components/LocaleProvider";
-import { translateRole } from "../../lib/i18n";
-
-const roles = ["admin", "support", "operator", "read-only"];
+import { useAuth } from "../components/AuthProvider";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { locale, t } = useLocale();
-  const [tgId, setTgId] = useState("");
-  const [role, setRole] = useState(roles[0]);
+  const { t } = useLocale();
+  const { login } = useAuth();
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    const normalizedRole = role.toLowerCase();
-    localStorage.setItem(
-      "adminAuth",
-      JSON.stringify({ tgId: tgId.trim(), role: normalizedRole })
-    );
-    document.cookie = `admin_role=${encodeURIComponent(normalizedRole)}; path=/`;
-    document.cookie = `admin_tg=${encodeURIComponent(tgId.trim())}; path=/`;
-    router.push("/");
+    setLoading(true);
+    setError(null);
+    const result = await login({ identifier: identifier.trim(), password });
+    setLoading(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    const needsChange = Boolean(result.data?.mustChangePassword);
+    router.push(needsChange ? "/change-password" : "/");
   };
 
   return (
@@ -35,33 +38,30 @@ export default function LoginPage() {
           </div>
         </div>
         <div className="auth-field">
-          <label htmlFor="tgId">{t("auth.tgId")}</label>
+          <label htmlFor="identifier">{t("auth.identifier")}</label>
           <input
-            id="tgId"
+            id="identifier"
             className="input"
-            placeholder={t("auth.tgPlaceholder")}
-            value={tgId}
-            onChange={(event) => setTgId(event.target.value)}
+            placeholder={t("auth.identifierPlaceholder")}
+            value={identifier}
+            onChange={(event) => setIdentifier(event.target.value)}
             required
           />
         </div>
         <div className="auth-field">
-          <label htmlFor="role">{t("auth.role")}</label>
-          <select
-            id="role"
-            className="select"
-            value={role}
-            onChange={(event) => setRole(event.target.value)}
-          >
-            {roles.map((item) => (
-              <option key={item} value={item}>
-                {translateRole(locale, item)}
-              </option>
-            ))}
-          </select>
+          <label htmlFor="password">{t("auth.password")}</label>
+          <input
+            id="password"
+            className="input"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
         </div>
-        <button className="button" type="submit">
-          {t("auth.submit")}
+        {error ? <div className="form-error">{error}</div> : null}
+        <button className="button" type="submit" disabled={loading}>
+          {loading ? t("auth.loading") : t("auth.submit")}
         </button>
       </form>
     </div>

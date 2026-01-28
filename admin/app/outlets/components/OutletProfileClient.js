@@ -11,16 +11,18 @@ import OutletNotes from "./OutletNotes";
 import OutletMenuProducts from "./OutletMenuProducts";
 import OutletCampaigns from "./OutletCampaigns";
 import { useLocale } from "../../components/LocaleProvider";
+import { useAuth } from "../../components/AuthProvider";
 
 const emptyOrders = { items: [], page: 1, limit: 10, total: 0 };
 
 export default function OutletProfileClient({ outletId, initialOutlet }) {
   const { t } = useLocale();
+  const { user: authUser } = useAuth();
   const [outlet, setOutlet] = useState(initialOutlet);
   const [activeTab, setActiveTab] = useState("overview");
   const [toast, setToast] = useState(null);
-  const [authorTgId, setAuthorTgId] = useState(null);
-  const [role, setRole] = useState("support");
+  const authorTgId = authUser?.tg_id || null;
+  const role = normalizeRole(authUser?.role);
   const [tabState, setTabState] = useState({
     orders: { data: emptyOrders, loading: false, error: null },
     notes: { data: [], loading: false, error: null }
@@ -31,16 +33,6 @@ export default function OutletProfileClient({ outletId, initialOutlet }) {
     page: 1,
     limit: 10
   });
-
-  useEffect(() => {
-    const stored = localStorage.getItem("adminAuth");
-    if (!stored) {
-      return;
-    }
-    const parsed = JSON.parse(stored);
-    setRole(normalizeRole(parsed.role));
-    setAuthorTgId(parsed.tgId || null);
-  }, []);
 
   const reloadOutlet = async () => {
     const result = await apiJson(`/api/outlets/${outletId}`);

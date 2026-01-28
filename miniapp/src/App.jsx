@@ -1,8 +1,13 @@
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "./auth/AuthContext.jsx";
+import RequireAuth from "./auth/RequireAuth.jsx";
 import HomePage from "./pages/HomePage.jsx";
 import ClientPage from "./pages/ClientPage.jsx";
 import RestaurantPage from "./pages/RestaurantPage.jsx";
 import CourierPage from "./pages/CourierPage.jsx";
+import LoginPage from "./pages/LoginPage.jsx";
+import RegisterPage from "./pages/RegisterPage.jsx";
+import ChangePasswordPage from "./pages/ChangePasswordPage.jsx";
 
 const AppShell = ({ children }) => (
   <div className="app">
@@ -30,14 +35,65 @@ const AppShell = ({ children }) => (
 export default function App() {
   return (
     <BrowserRouter>
-      <AppShell>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/client" element={<ClientPage />} />
-          <Route path="/restaurant" element={<RestaurantPage />} />
-          <Route path="/courier" element={<CourierPage />} />
-        </Routes>
-      </AppShell>
+      <AuthProvider>
+        <AppShell>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/client/login" element={<LoginPage role="client" />} />
+            <Route path="/client/register" element={<RegisterPage />} />
+            <Route
+              path="/client/change-password"
+              element={
+                <RequireAuth role="client">
+                  <ChangePasswordPage role="client" />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/client"
+              element={
+                <RequireAuth role="client">
+                  <ClientPage />
+                </RequireAuth>
+              }
+            />
+            <Route path="/restaurant/login" element={<LoginPage role="partner" />} />
+            <Route
+              path="/restaurant/change-password"
+              element={
+                <RequireAuth role="partner">
+                  <ChangePasswordPage role="partner" />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/restaurant"
+              element={
+                <RequireAuth role="partner">
+                  <RestaurantPage />
+                </RequireAuth>
+              }
+            />
+            <Route path="/courier/login" element={<LoginPage role="courier" />} />
+            <Route
+              path="/courier/change-password"
+              element={
+                <RequireAuth role="courier">
+                  <ChangePasswordPage role="courier" />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/courier"
+              element={
+                <RequireAuth role="courier">
+                  <CourierPage />
+                </RequireAuth>
+              }
+            />
+          </Routes>
+        </AppShell>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

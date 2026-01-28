@@ -1,4 +1,4 @@
-# Архитектура
+﻿# Архитектура
 
 ## Сервисы
 - Backend API: Node.js + Express, SQLite.
@@ -26,5 +26,10 @@
 - Позиции меню: `GET/POST/PATCH/DELETE /api/outlets/:outletId/items`, профиль позиции `GET /api/outlets/:outletId/items/:itemId`, стоплист `PATCH /api/outlets/:outletId/items/:itemId/stoplist`, копирование/дублирование `POST /api/outlets/:outletId/items/:itemId/duplicate` и `POST /api/outlets/:outletId/items/:itemId/copy-to-outlet`.
 - Данные позиции делятся на `items` (контент, медиа, КБЖУ, флаги) и `outlet_items` (цены, доступность, stoplist, delivery_methods), история цен хранится в `outlet_item_price_history`.
 - Кампании/сеты: CRUD `/api/outlets/:outletId/campaigns`, профиль `/api/campaigns/:id`, `activate/pause/archive/duplicate`, проверка `/api/campaigns/:id/validate`, заказы по кампании `/api/campaigns/:id/orders`. Данные хранятся в `campaigns`, `campaign_items`, `campaign_usage`, все изменения пишутся в audit log.
-- ??????? ???????: ?????? ?? `couriers` (full_name, phone, address, delivery_methods, rating_avg/count) ? ?????? `users` ????? `PATCH /api/couriers/:id` ? `/api/couriers/:id/status`.
+- Профиль курьера: данные из `couriers` (full_name, phone, address, delivery_methods, rating_avg/count) + статус из `users` через `PATCH /api/couriers/:id` и `/api/couriers/:id/status`.
 - Профиль клиента v2 использует `GET /api/clients/:id` (crm_note + subscriptions), `PATCH /crm-note`, `PATCH /subscriptions`, `POST /actions`, `GET /compensations`, `GET /messages`, `GET /audit`.
+- Профиль партнёра v2: `GET/PUT /partner/me`, `POST /partner/me/submit` (только partner), верификация и комиссия через `/admin/partners/*`.
+- Точки партнёра: `GET/POST/PUT /partner/points` и admin CRUD `/admin/points`.
+- Код передачи заказа (handoff): генерируется при создании заказа, хранится как hash + encrypted, подтверждение через `POST /api/orders/:id/confirm-handoff`.
+- Меню точек партнёра: `GET/POST/PUT/DELETE /partner/points/:pointId/categories` и `GET/POST/PUT/PATCH/DELETE /partner/points/:pointId/items`.
+- Admin меню точек: `GET /admin/points/:pointId/categories`, `GET/PUT /admin/points/:pointId/items`, `PATCH /admin/points/:pointId/items/:id/availability`.

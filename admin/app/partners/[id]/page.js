@@ -7,7 +7,7 @@ import { t } from "../../../lib/i18n";
 
 export default async function PartnerProfilePage({ params }) {
   const locale = getServerLocale();
-  const response = await apiRequest(`/api/partners/${params.id}`);
+  const response = await apiRequest(`/admin/partners/${params.id}`);
   if (!response.ok) {
     return (
       <main>

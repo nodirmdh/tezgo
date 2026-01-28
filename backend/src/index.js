@@ -1,35 +1,158 @@
 ﻿import crypto from "crypto";
 import express from "express";
+import cookieParser from "cookie-parser";
+import cors from "cors";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import rateLimit from "express-rate-limit";
+import { z } from "zod";
 import { initDb } from "./db.js";
 import { setupCampaignRoutes } from "./campaignRoutes.js";
 
 const app = express();
 const port = process.env.PORT || 3001;
 const db = initDb();
+const isProd = process.env.NODE_ENV === "production";
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+if (process.env.TRUST_PROXY === "true") {
+  app.set("trust proxy", 1);
+}
 
 app.use(express.json());
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, x-role, x-actor-tg"
-  );
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(204);
-  }
-  return next();
-});
+app.use(cookieParser());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("CORS not allowed"));
+    },
+    credentials: true
+  })
+);
 
 const getRole = (req) =>
-  String(req.header("x-role") || "support").toLowerCase();
+  String(req.user?.role || req.header("x-role") || "support").toLowerCase();
+
+const ACCESS_TOKEN_TTL_MIN = Number(process.env.ACCESS_TOKEN_TTL_MIN || 15);
+const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+const HANDOFF_CODE_SALT = process.env.HANDOFF_CODE_SALT || "dev-handoff-salt";
+const HANDOFF_CODE_SECRET = process.env.HANDOFF_CODE_SECRET || HANDOFF_CODE_SALT;
+const HANDOFF_CODE_KEY = crypto
+  .createHash("sha256")
+  .update(HANDOFF_CODE_SECRET)
+  .digest();
+
+const sendError = (res, status, code, message) =>
+  res.status(status).json({ message, code, error: message });
+
+const hashToken = (token) =>
+  crypto.createHash("sha256").update(token).digest("hex");
+
+const hashHandoffCode = (code) =>
+  crypto.createHash("sha256").update(`${HANDOFF_CODE_SALT}:${code}`).digest("hex");
+
+const isWeakHandoffCode = (code) => {
+  const weak = new Set(["0000", "000000", "1111", "111111", "1234", "123456", "2222", "222222"]);
+  return weak.has(String(code));
+};
+
+const generateHandoffCode = () => {
+  let code = "";
+  do {
+    code = String(Math.floor(100000 + Math.random() * 900000));
+  } while (isWeakHandoffCode(code));
+  return code;
+};
+
+const encryptHandoffCode = (code) => {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", HANDOFF_CODE_KEY, iv);
+  const encrypted = Buffer.concat([cipher.update(String(code), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString("base64")}:${tag.toString("base64")}:${encrypted.toString("base64")}`;
+};
+
+const decryptHandoffCode = (payload) => {
+  if (!payload) return null;
+  const [ivB64, tagB64, dataB64] = String(payload).split(":");
+  if (!ivB64 || !tagB64 || !dataB64) return null;
+  const iv = Buffer.from(ivB64, "base64");
+  const tag = Buffer.from(tagB64, "base64");
+  const data = Buffer.from(dataB64, "base64");
+  const decipher = crypto.createDecipheriv("aes-256-gcm", HANDOFF_CODE_KEY, iv);
+  decipher.setAuthTag(tag);
+  const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
+  return decrypted.toString("utf8");
+};
+
+const signAccessToken = (user) =>
+  jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, {
+    expiresIn: `${ACCESS_TOKEN_TTL_MIN}m`
+  });
+
+const setRefreshCookie = (res, token) => {
+  const sameSite = isProd
+    ? process.env.COOKIE_SAMESITE || "none"
+    : "lax";
+  const maxAgeMs = REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+  res.cookie("refresh_token", token, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite,
+    path: "/auth",
+    maxAge: maxAgeMs
+  });
+};
+
+const clearRefreshCookie = (res) => {
+  res.cookie("refresh_token", "", {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? process.env.COOKIE_SAMESITE || "none" : "lax",
+    path: "/auth",
+    maxAge: 0
+  });
+};
+
+const attachAuthUser = (req, _res, next) => {
+  const authHeader = req.header("authorization");
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.slice("Bearer ".length).trim();
+    try {
+      const payload = jwt.verify(token, JWT_SECRET);
+      req.user = {
+        id: payload.userId,
+        role: payload.role
+      };
+    } catch {
+      // ignore invalid token for optional auth
+    }
+  }
+  next();
+};
+
+app.use(attachAuthUser);
 
 const getActorTg = (req) => String(req.header("x-actor-tg") || "");
 
 const requireRole = (allowed) => (req, res, next) => {
   const role = getRole(req);
   if (!allowed.includes(role)) {
-    return res.status(403).json({ error: "Forbidden" });
+    return sendError(res, 403, "FORBIDDEN", "Forbidden");
+  }
+  return next();
+};
+
+const authRequired = (req, res, next) => {
+  if (!req.user?.id) {
+    return sendError(res, 401, "UNAUTHORIZED", "Unauthorized");
   }
   return next();
 };
@@ -41,6 +164,1513 @@ const hashCode = (code) =>
   crypto.createHash("sha256").update(code).digest("hex");
 
 const nowIso = () => new Date().toISOString();
+
+const authSchemas = {
+  register: z.object({
+    phone: z.string().min(6),
+    password: z.string().min(6),
+    fullName: z.string().optional()
+  }),
+  login: z.object({
+    identifier: z.string().min(3),
+    password: z.string().min(6)
+  }),
+  changePassword: z.object({
+    oldPassword: z.string().min(6),
+    newPassword: z.string().min(6)
+  })
+};
+
+const partnerSchemas = {
+  profile: z.object({
+    display_name: z.string().min(2),
+    legal_name: z.string().min(2),
+    inn: z.string().min(4),
+    legal_type: z.enum(["ip", "ooo", "other"]),
+    director_full_name: z.string().min(2),
+    phone: z.string().min(6),
+    email: z.string().email(),
+    legal_address: z.string().optional().nullable(),
+    bank_account: z.string().optional().nullable(),
+    bank_name: z.string().optional().nullable(),
+    bank_mfo: z.string().optional().nullable()
+  }),
+  profileUpdate: z.object({
+    display_name: z.string().min(2).optional(),
+    legal_name: z.string().min(2).optional(),
+    inn: z.string().min(4).optional(),
+    legal_type: z.enum(["ip", "ooo", "other"]).optional(),
+    director_full_name: z.string().min(2).optional(),
+    phone: z.string().min(6).optional(),
+    email: z.string().email().optional(),
+    legal_address: z.string().optional().nullable(),
+    bank_account: z.string().optional().nullable(),
+    bank_name: z.string().optional().nullable(),
+    bank_mfo: z.string().optional().nullable()
+  }),
+  submit: z.object({}),
+  verify: z.object({
+    action: z.enum(["verify", "reject"]),
+    comment: z.string().optional()
+  }),
+  commission: z.object({
+    commission_percent: z.number().min(0).max(100)
+  }),
+  payoutHold: z.object({
+    payout_hold: z.boolean()
+  }),
+  point: z.object({
+    name: z.string().min(2),
+    address: z.string().min(2),
+    address_comment: z.string().optional().nullable(),
+    phone: z.string().optional().nullable(),
+    work_hours: z.any().optional().nullable(),
+    status: z.enum(["active", "hidden", "closed"]).optional()
+  })
+};
+
+const menuSchemas = {
+  category: z.object({
+    name: z.string().min(2).max(80)
+  }),
+  item: z.object({
+    name: z.string().min(2).max(80),
+    description: z.string().optional().nullable(),
+    price: z.number().positive(),
+    is_available: z.boolean().optional(),
+    photo_url: z.string().optional().nullable(),
+    categoryId: z.number().optional(),
+    categoryName: z.string().min(2).max(80).optional()
+  })
+};
+
+const serializeUser = (user) => ({
+  id: user.id,
+  role: user.role,
+  tg_id: user.tg_id,
+  phone: user.phone ?? null,
+  username: user.username ?? null,
+  status: user.status,
+  mustChangePassword: Boolean(user.must_change_password)
+});
+
+const authLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.ip}:${req.body?.identifier || "unknown"}`,
+  handler: (_req, res) =>
+    sendError(res, 429, "RATE_LIMIT", "Too many login attempts")
+});
+
+const getUserByIdentifierStmt = db.prepare(
+  "SELECT * FROM users WHERE phone = ? OR username = ? LIMIT 1"
+);
+const getUserByIdStmt = db.prepare("SELECT * FROM users WHERE id = ?");
+const insertUserStmt = db.prepare(
+  `INSERT INTO users
+    (tg_id, username, phone, role, status, password_hash, must_change_password, created_at, updated_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+);
+const insertClientStmt = db.prepare(
+  "INSERT INTO clients (user_id, phone, full_name) VALUES (?, ?, ?)"
+);
+const insertRefreshStmt = db.prepare(
+  `INSERT INTO refresh_tokens
+    (user_id, token_hash, expires_at, created_at, last_used_at, ip, user_agent)
+   VALUES (?, ?, ?, ?, ?, ?, ?)`
+);
+const findRefreshStmt = db.prepare(
+  `SELECT * FROM refresh_tokens
+   WHERE token_hash = ?
+     AND revoked_at IS NULL
+     AND datetime(expires_at) > datetime('now')`
+);
+const revokeRefreshStmt = db.prepare(
+  "UPDATE refresh_tokens SET revoked_at = @revoked_at, last_used_at = @last_used_at WHERE id = @id"
+);
+const revokeAllRefreshStmt = db.prepare(
+  "UPDATE refresh_tokens SET revoked_at = @revoked_at WHERE user_id = @user_id AND revoked_at IS NULL"
+);
+
+const getPartnerByUserStmt = db.prepare(
+  `SELECT partners.*
+   FROM partner_users
+   JOIN partners ON partners.id = partner_users.partner_id
+   WHERE partner_users.user_id = ?`
+);
+const getPartnerByIdStmt = db.prepare("SELECT * FROM partners WHERE id = ?");
+const updatePartnerStmt = db.prepare(
+  `UPDATE partners
+   SET display_name = COALESCE(@display_name, display_name),
+       legal_name = COALESCE(@legal_name, legal_name),
+       inn = COALESCE(@inn, inn),
+       legal_type = COALESCE(@legal_type, legal_type),
+       director_full_name = COALESCE(@director_full_name, director_full_name),
+       phone = COALESCE(@phone, phone),
+       email = COALESCE(@email, email),
+       legal_address = COALESCE(@legal_address, legal_address),
+       bank_account = COALESCE(@bank_account, bank_account),
+       bank_name = COALESCE(@bank_name, bank_name),
+       bank_mfo = COALESCE(@bank_mfo, bank_mfo),
+       verification_status = COALESCE(@verification_status, verification_status),
+       verification_comment = COALESCE(@verification_comment, verification_comment),
+       payout_hold = COALESCE(@payout_hold, payout_hold),
+       commission_percent = COALESCE(@commission_percent, commission_percent),
+       updated_at = @updated_at
+   WHERE id = @id`
+);
+const listPartnersStmt = db.prepare(
+  `SELECT * FROM partners ORDER BY id DESC`
+);
+const listPartnersByStatusStmt = db.prepare(
+  `SELECT * FROM partners WHERE verification_status = ? ORDER BY id DESC`
+);
+const listPartnersByPayoutHoldStmt = db.prepare(
+  `SELECT * FROM partners WHERE payout_hold = ? ORDER BY id DESC`
+);
+const listPointsByPartnerStmt = db.prepare(
+  `SELECT id, partner_id, name, address, address_comment, phone, work_hours, status, created_at, updated_at
+   FROM points WHERE partner_id = ? ORDER BY id DESC`
+);
+const getPointByIdStmt = db.prepare("SELECT * FROM points WHERE id = ?");
+const getPartnerPointStmt = db.prepare(
+  "SELECT * FROM points WHERE id = ? AND partner_id = ?"
+);
+const insertPointStmt = db.prepare(
+  `INSERT INTO points
+   (partner_id, name, address, address_comment, phone, work_hours, status, created_at, updated_at)
+   VALUES (@partner_id, @name, @address, @address_comment, @phone, @work_hours, @status, @created_at, @updated_at)`
+);
+const updatePointStmt = db.prepare(
+  `UPDATE points
+   SET name = COALESCE(@name, name),
+       address = COALESCE(@address, address),
+       address_comment = COALESCE(@address_comment, address_comment),
+       phone = COALESCE(@phone, phone),
+       work_hours = COALESCE(@work_hours, work_hours),
+       status = COALESCE(@status, status),
+       updated_at = @updated_at
+   WHERE id = @id`
+);
+
+const listMenuCategoriesStmt = db.prepare(
+  `SELECT id, point_id, name, name_normalized, created_at, updated_at
+   FROM menu_categories
+   WHERE point_id = ?
+   ORDER BY datetime(updated_at) DESC, id DESC`
+);
+const getMenuCategoryByIdStmt = db.prepare(
+  "SELECT * FROM menu_categories WHERE id = ? AND point_id = ?"
+);
+const getMenuCategoryByNormalizedStmt = db.prepare(
+  "SELECT * FROM menu_categories WHERE point_id = ? AND name_normalized = ?"
+);
+const insertMenuCategoryStmt = db.prepare(
+  `INSERT INTO menu_categories
+   (point_id, name, name_normalized, created_at, updated_at)
+   VALUES (@point_id, @name, @name_normalized, @created_at, @updated_at)`
+);
+const updateMenuCategoryStmt = db.prepare(
+  `UPDATE menu_categories
+   SET name = @name,
+       name_normalized = @name_normalized,
+       updated_at = @updated_at
+   WHERE id = @id AND point_id = @point_id`
+);
+const deleteMenuCategoryStmt = db.prepare(
+  "DELETE FROM menu_categories WHERE id = ? AND point_id = ?"
+);
+const countMenuItemsByCategoryStmt = db.prepare(
+  "SELECT COUNT(*) as count FROM menu_items WHERE category_id = ?"
+);
+
+const listMenuItemsStmt = db.prepare(
+  `SELECT menu_items.id,
+          menu_items.point_id,
+          menu_items.category_id,
+          menu_items.name,
+          menu_items.description,
+          menu_items.price,
+          menu_items.is_available,
+          menu_items.photo_url,
+          menu_items.created_at,
+          menu_items.updated_at,
+          menu_categories.name as category_name
+   FROM menu_items
+   LEFT JOIN menu_categories ON menu_categories.id = menu_items.category_id
+   WHERE menu_items.point_id = @point_id
+   ORDER BY datetime(menu_items.updated_at) DESC, menu_items.id DESC`
+);
+const getMenuItemByIdStmt = db.prepare(
+  `SELECT menu_items.*,
+          menu_categories.name as category_name
+   FROM menu_items
+   LEFT JOIN menu_categories ON menu_categories.id = menu_items.category_id
+   WHERE menu_items.id = ? AND menu_items.point_id = ?`
+);
+const insertMenuItemStmt = db.prepare(
+  `INSERT INTO menu_items
+    (point_id, category_id, name, description, price, is_available, photo_url, created_at, updated_at)
+   VALUES (@point_id, @category_id, @name, @description, @price, @is_available, @photo_url, @created_at, @updated_at)`
+);
+const updateMenuItemStmt = db.prepare(
+  `UPDATE menu_items
+   SET category_id = COALESCE(@category_id, category_id),
+       name = COALESCE(@name, name),
+       description = COALESCE(@description, description),
+       price = COALESCE(@price, price),
+       is_available = COALESCE(@is_available, is_available),
+       photo_url = COALESCE(@photo_url, photo_url),
+       updated_at = @updated_at
+   WHERE id = @id AND point_id = @point_id`
+);
+const updateMenuItemAvailabilityStmt = db.prepare(
+  `UPDATE menu_items
+   SET is_available = @is_available,
+       updated_at = @updated_at
+   WHERE id = @id AND point_id = @point_id`
+);
+const deleteMenuItemStmt = db.prepare(
+  "DELETE FROM menu_items WHERE id = ? AND point_id = ?"
+);
+
+const issueRefreshToken = ({ userId, ip, userAgent }) => {
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashToken(token);
+  const now = nowIso();
+  const expiresAt = new Date(
+    Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+  insertRefreshStmt.run(
+    userId,
+    tokenHash,
+    expiresAt,
+    now,
+    now,
+    ip ?? null,
+    userAgent ?? null
+  );
+  return token;
+};
+
+const refreshTokenFromRequest = (req) => req.cookies?.refresh_token || null;
+
+app.post("/auth/register", async (req, res) => {
+  const parsed = authSchemas.register.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const { phone, password, fullName } = parsed.data;
+  const existing = db.prepare("SELECT id FROM users WHERE phone = ?").get(phone);
+  if (existing) {
+    return sendError(res, 409, "PHONE_EXISTS", "Phone already зарегистрирован");
+  }
+  const passwordHash = await bcrypt.hash(password, 12);
+  const now = nowIso();
+  const tgId = `auth:${crypto.randomUUID()}`;
+  const result = insertUserStmt.run(
+    tgId,
+    null,
+    phone,
+    "client",
+    "active",
+    passwordHash,
+    0,
+    now,
+    now
+  );
+  insertClientStmt.run(result.lastInsertRowid, phone, fullName || null);
+  const user = getUserByIdStmt.get(result.lastInsertRowid);
+  const refreshToken = issueRefreshToken({
+    userId: user.id,
+    ip: req.ip,
+    userAgent: req.header("user-agent")
+  });
+  setRefreshCookie(res, refreshToken);
+  return res.json({ accessToken: signAccessToken(user), user: serializeUser(user) });
+});
+
+app.post("/auth/login", authLimiter, async (req, res) => {
+  const parsed = authSchemas.login.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const { identifier, password } = parsed.data;
+  const user = getUserByIdentifierStmt.get(identifier, identifier);
+  if (!user) {
+    return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid credentials");
+  }
+  if (user.status === "blocked") {
+    return sendError(res, 403, "ACCOUNT_BLOCKED", "Account blocked");
+  }
+  const match = await bcrypt.compare(password, user.password_hash || "");
+  if (!match) {
+    return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid credentials");
+  }
+  const refreshToken = issueRefreshToken({
+    userId: user.id,
+    ip: req.ip,
+    userAgent: req.header("user-agent")
+  });
+  setRefreshCookie(res, refreshToken);
+  return res.json({
+    accessToken: signAccessToken(user),
+    user: serializeUser(user),
+    mustChangePassword: Boolean(user.must_change_password)
+  });
+});
+
+app.post("/auth/refresh", (req, res) => {
+  const token = refreshTokenFromRequest(req);
+  if (!token) {
+    return sendError(res, 401, "NO_REFRESH", "Refresh token missing");
+  }
+  const stored = findRefreshStmt.get(hashToken(token));
+  if (!stored) {
+    return sendError(res, 401, "INVALID_REFRESH", "Refresh token invalid");
+  }
+  revokeRefreshStmt.run({
+    id: stored.id,
+    revoked_at: nowIso(),
+    last_used_at: nowIso()
+  });
+  const user = getUserByIdStmt.get(stored.user_id);
+  if (!user || user.status === "blocked") {
+    return sendError(res, 403, "ACCOUNT_BLOCKED", "Account blocked");
+  }
+  const newToken = issueRefreshToken({
+    userId: user.id,
+    ip: req.ip,
+    userAgent: req.header("user-agent")
+  });
+  setRefreshCookie(res, newToken);
+  return res.json({ accessToken: signAccessToken(user), user: serializeUser(user) });
+});
+
+app.post("/auth/logout", (req, res) => {
+  const token = refreshTokenFromRequest(req);
+  if (token) {
+    const stored = findRefreshStmt.get(hashToken(token));
+    if (stored) {
+      revokeRefreshStmt.run({
+        id: stored.id,
+        revoked_at: nowIso(),
+        last_used_at: nowIso()
+      });
+    }
+  }
+  clearRefreshCookie(res);
+  return res.json({ status: "ok" });
+});
+
+app.get("/auth/me", authRequired, (req, res) => {
+  const user = getUserByIdStmt.get(req.user.id);
+  if (!user) {
+    return sendError(res, 404, "NOT_FOUND", "User not found");
+  }
+  return res.json({ user: serializeUser(user) });
+});
+
+app.post("/auth/change-password", authRequired, async (req, res) => {
+  const parsed = authSchemas.changePassword.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const user = getUserByIdStmt.get(req.user.id);
+  if (!user) {
+    return sendError(res, 404, "NOT_FOUND", "User not found");
+  }
+  const match = await bcrypt.compare(parsed.data.oldPassword, user.password_hash || "");
+  if (!match) {
+    return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid password");
+  }
+  const newHash = await bcrypt.hash(parsed.data.newPassword, 12);
+  db.prepare(
+    "UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?"
+  ).run(newHash, nowIso(), user.id);
+  revokeAllRefreshStmt.run({ user_id: user.id, revoked_at: nowIso() });
+  const newRefresh = issueRefreshToken({
+    userId: user.id,
+    ip: req.ip,
+    userAgent: req.header("user-agent")
+  });
+  setRefreshCookie(res, newRefresh);
+  return res.json({ status: "ok" });
+});
+
+const adminUserSchemas = {
+  create: z.object({
+    role: z.enum(["partner", "courier"]),
+    username: z.string().min(3),
+    phone: z.string().optional(),
+    password: z.string().min(6).optional(),
+    partner_id: z.number().optional(),
+    role_in_partner: z.enum(["owner", "manager"]).optional()
+  }),
+  resetPassword: z.object({ password: z.string().min(6).optional() }),
+  status: z.object({ status: z.enum(["active", "blocked"]) })
+};
+
+const createTempPassword = () =>
+  crypto.randomBytes(6).toString("hex");
+
+app.get("/admin/users", requireRole(["admin", "support"]), (req, res) => {
+  const role = String(req.query.role || "").toLowerCase();
+  if (!["partner", "courier"].includes(role)) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid role");
+  }
+  const users = db
+    .prepare(
+      "SELECT id, role, phone, username, status, must_change_password, created_at, updated_at FROM users WHERE role = ? ORDER BY id DESC"
+    )
+    .all(role)
+    .map((user) => serializeUser(user));
+  res.json({ items: users });
+});
+
+app.post("/admin/users", requireRole(["admin", "support"]), async (req, res) => {
+  const parsed = adminUserSchemas.create.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const { role, username, phone, partner_id, role_in_partner } = parsed.data;
+  if (role === "partner" && partner_id) {
+    const partner = getPartnerByIdStmt.get(Number(partner_id));
+    if (!partner) {
+      return sendError(res, 404, "NOT_FOUND", "Partner not found");
+    }
+  }
+  const password = parsed.data.password || createTempPassword();
+  const exists = db
+    .prepare("SELECT id FROM users WHERE username = ?")
+    .get(username);
+  if (exists) {
+    return sendError(res, 409, "USERNAME_EXISTS", "Username already exists");
+  }
+  if (phone) {
+    const phoneExists = db.prepare("SELECT id FROM users WHERE phone = ?").get(phone);
+    if (phoneExists) {
+      return sendError(res, 409, "PHONE_EXISTS", "Phone already exists");
+    }
+  }
+  const now = nowIso();
+  const tgId = `auth:${crypto.randomUUID()}`;
+  const hash = await bcrypt.hash(password, 12);
+  const result = insertUserStmt.run(
+    tgId,
+    username,
+    phone || null,
+    role,
+    "active",
+    hash,
+    1,
+    now,
+    now
+  );
+  if (role === "partner" && partner_id) {
+    db.prepare(
+      "INSERT OR IGNORE INTO partner_users (user_id, partner_id, role_in_partner) VALUES (?, ?, ?)"
+    ).run(result.lastInsertRowid, Number(partner_id), role_in_partner || "owner");
+    logAudit({
+      entity_type: "partner_user",
+      entity_id: `${partner_id}:${result.lastInsertRowid}`,
+      action: "create",
+      actor_id: getActorId(req),
+      before: null,
+      after: { partner_id, user_id: result.lastInsertRowid, role_in_partner: role_in_partner || "owner" }
+    });
+  }
+  if (role === "courier") {
+    db.prepare(
+      "INSERT OR IGNORE INTO couriers (user_id, is_active, rating_avg, rating_count) VALUES (?, 1, 0, 0)"
+    ).run(result.lastInsertRowid);
+  }
+  const user = getUserByIdStmt.get(result.lastInsertRowid);
+  res.status(201).json({ user: serializeUser(user), tempPassword: password });
+});
+
+app.post("/admin/users/:id/reset-password", requireRole(["admin", "support"]), async (req, res) => {
+  const parsed = adminUserSchemas.resetPassword.safeParse(req.body || {});
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const userId = Number(req.params.id);
+  const user = getUserByIdStmt.get(userId);
+  if (!user) {
+    return sendError(res, 404, "NOT_FOUND", "User not found");
+  }
+  const password = parsed.data.password || createTempPassword();
+  const hash = await bcrypt.hash(password, 12);
+  db.prepare(
+    "UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = ? WHERE id = ?"
+  ).run(hash, nowIso(), userId);
+  revokeAllRefreshStmt.run({ user_id: userId, revoked_at: nowIso() });
+  res.json({ user: serializeUser(getUserByIdStmt.get(userId)), tempPassword: password });
+});
+
+app.patch("/admin/users/:id/status", requireRole(["admin", "support"]), (req, res) => {
+  const parsed = adminUserSchemas.status.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const userId = Number(req.params.id);
+  const user = getUserByIdStmt.get(userId);
+  if (!user) {
+    return sendError(res, 404, "NOT_FOUND", "User not found");
+  }
+  db.prepare("UPDATE users SET status = ?, updated_at = ? WHERE id = ?").run(
+    parsed.data.status,
+    nowIso(),
+    userId
+  );
+  res.json({ user: serializeUser(getUserByIdStmt.get(userId)) });
+});
+
+app.get("/partner/me", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  res.json({
+    id: partner.id,
+    display_name: partner.display_name,
+    legal_name: partner.legal_name,
+    inn: partner.inn,
+    legal_type: partner.legal_type,
+    director_full_name: partner.director_full_name,
+    phone: partner.phone,
+    email: partner.email,
+    legal_address: partner.legal_address,
+    bank_account: partner.bank_account,
+    bank_name: partner.bank_name,
+    bank_mfo: partner.bank_mfo,
+    verification_status: partner.verification_status,
+    verification_comment: partner.verification_comment,
+    payout_hold: Boolean(partner.payout_hold)
+  });
+});
+
+app.put("/partner/me", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  const parsed = partnerSchemas.profileUpdate.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const payload = parsed.data;
+  if (partner.verification_status === "submitted") {
+    return sendError(res, 403, "FORBIDDEN", "Verification in review");
+  }
+  if (partner.verification_status === "verified") {
+    const forbidden = [
+      "display_name",
+      "legal_name",
+      "inn",
+      "legal_type",
+      "director_full_name",
+      "legal_address",
+      "bank_account",
+      "bank_name",
+      "bank_mfo"
+    ];
+    const changed = forbidden.some((field) => field in payload);
+    if (changed) {
+      return sendError(res, 403, "FORBIDDEN", "Verification locked");
+    }
+  }
+  const before = { ...partner };
+  updatePartnerStmt.run({
+    id: partner.id,
+    ...payload,
+    updated_at: nowIso()
+  });
+  const updated = getPartnerByIdStmt.get(partner.id);
+  logAudit({
+    entity_type: "partner",
+    entity_id: partner.id,
+    action: "update_requisites",
+    actor_id: getActorId(req),
+    before,
+    after: updated
+  });
+  res.json(updated);
+});
+
+app.post("/partner/me/submit", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  if (partner.verification_status === "verified") {
+    return sendError(res, 403, "FORBIDDEN", "Already verified");
+  }
+  const required = [
+    partner.display_name,
+    partner.legal_name,
+    partner.inn,
+    partner.legal_type,
+    partner.director_full_name,
+    partner.phone,
+    partner.email
+  ];
+  if (required.some((value) => !value)) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Fill required fields");
+  }
+  updatePartnerStmt.run({
+    id: partner.id,
+    verification_status: "submitted",
+    verification_comment: null,
+    updated_at: nowIso()
+  });
+  const updated = getPartnerByIdStmt.get(partner.id);
+  logAudit({
+    entity_type: "partner",
+    entity_id: partner.id,
+    action: "submit_verification",
+    actor_id: getActorId(req),
+    before: partner,
+    after: updated
+  });
+  res.json(updated);
+});
+
+app.get("/partner/points", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  res.json({ items: listPointsByPartnerStmt.all(partner.id) });
+});
+
+app.post("/partner/points", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  const parsed = partnerSchemas.point.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const now = nowIso();
+  const payload = {
+    partner_id: partner.id,
+    name: parsed.data.name,
+    address: parsed.data.address,
+    address_comment: parsed.data.address_comment ?? null,
+    phone: parsed.data.phone ?? null,
+    work_hours: parsed.data.work_hours ? JSON.stringify(parsed.data.work_hours) : null,
+    status: parsed.data.status ?? "active",
+    created_at: now,
+    updated_at: now
+  };
+  const result = insertPointStmt.run(payload);
+  const created = getPointByIdStmt.get(result.lastInsertRowid);
+  logAudit({
+    entity_type: "point",
+    entity_id: created.id,
+    action: "create",
+    actor_id: getActorId(req),
+    before: null,
+    after: created
+  });
+  res.status(201).json(created);
+});
+
+app.put("/partner/points/:id", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  const pointId = Number(req.params.id);
+  const existing = getPointByIdStmt.get(pointId);
+  if (!existing || Number(existing.partner_id) !== Number(partner.id)) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  const parsed = partnerSchemas.point.partial().safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  updatePointStmt.run({
+    id: pointId,
+    ...parsed.data,
+    work_hours: parsed.data.work_hours ? JSON.stringify(parsed.data.work_hours) : undefined,
+    updated_at: nowIso()
+  });
+  const updated = getPointByIdStmt.get(pointId);
+  logAudit({
+    entity_type: "point",
+    entity_id: pointId,
+    action: "update",
+    actor_id: getActorId(req),
+    before: existing,
+    after: updated
+  });
+  res.json(updated);
+});
+
+app.get("/partner/points/:pointId/categories", authRequired, requireRole(["partner"]), (req, res) => {
+  const result = getPartnerPointForRequest(req, res, req.params.pointId);
+  if (!result) {
+    return;
+  }
+  res.json({ items: listMenuCategoriesStmt.all(result.point.id) });
+});
+
+app.post("/partner/points/:pointId/categories", authRequired, requireRole(["partner"]), (req, res) => {
+  const result = getPartnerPointForRequest(req, res, req.params.pointId);
+  if (!result) {
+    return;
+  }
+  const parsed = menuSchemas.category.safeParse(req.body || {});
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const normalized = normalizeCategoryName(parsed.data.name);
+  if (!normalized) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Name required");
+  }
+  const existing = getMenuCategoryByNormalizedStmt.get(
+    result.point.id,
+    normalized.normalized
+  );
+  if (existing) {
+    return res.json({ item: existing, existing: true });
+  }
+  const now = nowIso();
+  const create = insertMenuCategoryStmt.run({
+    point_id: result.point.id,
+    name: normalized.name,
+    name_normalized: normalized.normalized,
+    created_at: now,
+    updated_at: now
+  });
+  const created = getMenuCategoryByIdStmt.get(create.lastInsertRowid, result.point.id);
+  logAudit({
+    entity_type: "menu_category",
+    entity_id: created.id,
+    action: "create",
+    actor_id: getActorId(req),
+    before: null,
+    after: created
+  });
+  return res.status(201).json({ item: created, existing: false });
+});
+
+app.put("/partner/points/:pointId/categories/:id", authRequired, requireRole(["partner"]), (req, res) => {
+  const result = getPartnerPointForRequest(req, res, req.params.pointId);
+  if (!result) {
+    return;
+  }
+  const parsed = menuSchemas.category.safeParse(req.body || {});
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const current = getMenuCategoryByIdStmt.get(Number(req.params.id), result.point.id);
+  if (!current) {
+    return sendError(res, 404, "NOT_FOUND", "Category not found");
+  }
+  const normalized = normalizeCategoryName(parsed.data.name);
+  if (!normalized) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Name required");
+  }
+  const conflict = getMenuCategoryByNormalizedStmt.get(
+    result.point.id,
+    normalized.normalized
+  );
+  if (conflict && Number(conflict.id) !== Number(current.id)) {
+    return sendError(res, 409, "DUPLICATE", "Category already exists");
+  }
+  const now = nowIso();
+  updateMenuCategoryStmt.run({
+    id: current.id,
+    point_id: result.point.id,
+    name: normalized.name,
+    name_normalized: normalized.normalized,
+    updated_at: now
+  });
+  const updated = getMenuCategoryByIdStmt.get(current.id, result.point.id);
+  logAudit({
+    entity_type: "menu_category",
+    entity_id: current.id,
+    action: "update",
+    actor_id: getActorId(req),
+    before: current,
+    after: updated
+  });
+  res.json(updated);
+});
+
+app.delete("/partner/points/:pointId/categories/:id", authRequired, requireRole(["partner"]), (req, res) => {
+  const result = getPartnerPointForRequest(req, res, req.params.pointId);
+  if (!result) {
+    return;
+  }
+  const category = getMenuCategoryByIdStmt.get(Number(req.params.id), result.point.id);
+  if (!category) {
+    return sendError(res, 404, "NOT_FOUND", "Category not found");
+  }
+  const count = countMenuItemsByCategoryStmt.get(category.id).count;
+  if (count > 0) {
+    return sendError(res, 409, "IN_USE", "Category has items");
+  }
+  deleteMenuCategoryStmt.run(category.id, result.point.id);
+  logAudit({
+    entity_type: "menu_category",
+    entity_id: category.id,
+    action: "delete",
+    actor_id: getActorId(req),
+    before: category,
+    after: null
+  });
+  res.json({ status: "ok" });
+});
+
+app.get("/partner/points/:pointId/items", authRequired, requireRole(["partner"]), (req, res) => {
+  const result = getPartnerPointForRequest(req, res, req.params.pointId);
+  if (!result) {
+    return;
+  }
+  const { q, categoryId, available } = req.query;
+  const base = listMenuItemsStmt.all({ point_id: result.point.id });
+  let items = base;
+  if (categoryId) {
+    items = items.filter((item) => Number(item.category_id) === Number(categoryId));
+  }
+  if (available !== undefined && available !== "") {
+    const flag = Number(available) === 1;
+    items = items.filter((item) => Boolean(item.is_available) === flag);
+  }
+  if (q) {
+    const search = String(q).toLowerCase();
+    items = items.filter((item) => item.name.toLowerCase().includes(search));
+  }
+  res.json({ items });
+});
+
+app.post("/partner/points/:pointId/items", authRequired, requireRole(["partner"]), (req, res) => {
+  const result = getPartnerPointForRequest(req, res, req.params.pointId);
+  if (!result) {
+    return;
+  }
+  const payload = {
+    name: req.body?.name,
+    description: req.body?.description ?? null,
+    price: Number(req.body?.price),
+    is_available: req.body?.is_available,
+    photo_url: req.body?.photo_url ?? null,
+    categoryId: req.body?.categoryId ? Number(req.body?.categoryId) : undefined,
+    categoryName: req.body?.categoryName ?? undefined
+  };
+  const parsed = menuSchemas.item.safeParse(payload);
+  if (!parsed.success || Number.isNaN(payload.price)) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const resolved = resolveMenuCategory(result.point.id, {
+    categoryId: payload.categoryId,
+    categoryName: payload.categoryName
+  });
+  if (resolved.error) {
+    return sendError(res, 400, "VALIDATION_ERROR", resolved.error);
+  }
+  if (!resolved.existing && resolved.id && payload.categoryName) {
+    const createdCategory = getMenuCategoryByIdStmt.get(resolved.id, result.point.id);
+    logAudit({
+      entity_type: "menu_category",
+      entity_id: resolved.id,
+      action: "create",
+      actor_id: getActorId(req),
+      before: null,
+      after: createdCategory
+    });
+  }
+  const now = nowIso();
+  const create = insertMenuItemStmt.run({
+    point_id: result.point.id,
+    category_id: resolved.id,
+    name: parsed.data.name,
+    description: parsed.data.description ?? null,
+    price: Math.round(payload.price),
+    is_available: payload.is_available === false ? 0 : 1,
+    photo_url: parsed.data.photo_url ?? null,
+    created_at: now,
+    updated_at: now
+  });
+  const created = getMenuItemByIdStmt.get(create.lastInsertRowid, result.point.id);
+  logAudit({
+    entity_type: "menu_item",
+    entity_id: created.id,
+    action: "create",
+    actor_id: getActorId(req),
+    before: null,
+    after: created
+  });
+  res.status(201).json({ item: created, category_existing: resolved.existing });
+});
+
+app.put("/partner/points/:pointId/items/:id", authRequired, requireRole(["partner"]), (req, res) => {
+  const result = getPartnerPointForRequest(req, res, req.params.pointId);
+  if (!result) {
+    return;
+  }
+  const current = getMenuItemByIdStmt.get(Number(req.params.id), result.point.id);
+  if (!current) {
+    return sendError(res, 404, "NOT_FOUND", "Item not found");
+  }
+  const payload = {
+    name: req.body?.name ?? current.name,
+    description: req.body?.description ?? current.description ?? null,
+    price: req.body?.price !== undefined ? Number(req.body.price) : current.price,
+    is_available: req.body?.is_available,
+    photo_url: req.body?.photo_url ?? current.photo_url ?? null,
+    categoryId: req.body?.categoryId ? Number(req.body?.categoryId) : undefined,
+    categoryName: req.body?.categoryName ?? undefined
+  };
+  const parsed = menuSchemas.item.safeParse(payload);
+  if (!parsed.success || Number.isNaN(payload.price)) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const resolved = resolveMenuCategory(result.point.id, {
+    categoryId: payload.categoryId,
+    categoryName: payload.categoryName
+  });
+  if (resolved.error) {
+    return sendError(res, 400, "VALIDATION_ERROR", resolved.error);
+  }
+  if (!resolved.existing && resolved.id && payload.categoryName) {
+    const createdCategory = getMenuCategoryByIdStmt.get(resolved.id, result.point.id);
+    logAudit({
+      entity_type: "menu_category",
+      entity_id: resolved.id,
+      action: "create",
+      actor_id: getActorId(req),
+      before: null,
+      after: createdCategory
+    });
+  }
+  updateMenuItemStmt.run({
+    id: current.id,
+    point_id: result.point.id,
+    category_id: resolved.id ?? current.category_id,
+    name: parsed.data.name,
+    description: parsed.data.description ?? null,
+    price: Math.round(payload.price),
+    is_available: payload.is_available === undefined ? current.is_available : payload.is_available ? 1 : 0,
+    photo_url: parsed.data.photo_url ?? null,
+    updated_at: nowIso()
+  });
+  const updated = getMenuItemByIdStmt.get(current.id, result.point.id);
+  logAudit({
+    entity_type: "menu_item",
+    entity_id: current.id,
+    action: "update",
+    actor_id: getActorId(req),
+    before: current,
+    after: updated
+  });
+  res.json({ item: updated, category_existing: resolved.existing });
+});
+
+app.patch(
+  "/partner/points/:pointId/items/:id/availability",
+  authRequired,
+  requireRole(["partner"]),
+  (req, res) => {
+    const result = getPartnerPointForRequest(req, res, req.params.pointId);
+    if (!result) {
+      return;
+    }
+    const current = getMenuItemByIdStmt.get(Number(req.params.id), result.point.id);
+    if (!current) {
+      return sendError(res, 404, "NOT_FOUND", "Item not found");
+    }
+    if (typeof req.body?.is_available !== "boolean") {
+      return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+    }
+    updateMenuItemAvailabilityStmt.run({
+      id: current.id,
+      point_id: result.point.id,
+      is_available: req.body.is_available ? 1 : 0,
+      updated_at: nowIso()
+    });
+    const updated = getMenuItemByIdStmt.get(current.id, result.point.id);
+    logAudit({
+      entity_type: "menu_item",
+      entity_id: current.id,
+      action: "availability",
+      actor_id: getActorId(req),
+      before: current,
+      after: updated
+    });
+    res.json(updated);
+  }
+);
+
+app.delete("/partner/points/:pointId/items/:id", authRequired, requireRole(["partner"]), (req, res) => {
+  const result = getPartnerPointForRequest(req, res, req.params.pointId);
+  if (!result) {
+    return;
+  }
+  const current = getMenuItemByIdStmt.get(Number(req.params.id), result.point.id);
+  if (!current) {
+    return sendError(res, 404, "NOT_FOUND", "Item not found");
+  }
+  deleteMenuItemStmt.run(current.id, result.point.id);
+  logAudit({
+    entity_type: "menu_item",
+    entity_id: current.id,
+    action: "delete",
+    actor_id: getActorId(req),
+    before: current,
+    after: null
+  });
+  res.json({ status: "ok" });
+});
+
+app.get("/partner/orders", authRequired, requireRole(["partner"]), (req, res) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return;
+  }
+  const status = req.query.status ? String(req.query.status) : null;
+  const params = { partner_id: partner.id };
+  let sql = `SELECT orders.id,
+                    orders.order_number,
+                    orders.status,
+                    orders.created_at,
+                    orders.ready_at,
+                    orders.total_amount,
+                    orders.fulfillment_type,
+                    orders.handoff_code_hash,
+                    orders.handoff_code_encrypted,
+                    orders.handoff_code_last4,
+                    orders.handoff_code_expires_at,
+                    orders.handoff_code_used_at,
+                    orders.courier_user_id,
+                    orders.client_user_id,
+                    outlets.name as outlet_name,
+                    outlets.partner_id as partner_id
+             FROM orders
+             JOIN outlets ON outlets.id = orders.outlet_id
+             WHERE outlets.partner_id = @partner_id`;
+  if (status) {
+    sql += " AND orders.status = @status";
+    params.status = status;
+  }
+  const rows = db.prepare(sql).all(params);
+  const items = rows.map((row) => {
+    const canSeeCode = canExposeHandoffCode({
+      order: row,
+      role: "partner",
+      userId: req.user?.id,
+      partnerId: partner.id
+    });
+    return {
+      id: row.id,
+      order_number: row.order_number,
+      status: row.status,
+      created_at: row.created_at,
+      ready_at: row.ready_at,
+      total_amount: row.total_amount,
+      fulfillment_type: row.fulfillment_type,
+      outlet_name: row.outlet_name,
+      handoff_code: canSeeCode ? decryptHandoffCode(row.handoff_code_encrypted) : null
+    };
+  });
+  res.json({ items });
+});
+
+app.get("/admin/partners", requireRole(["admin", "support"]), (req, res) => {
+  const status = req.query.status ? String(req.query.status) : null;
+  const payoutHold = req.query.payout_hold;
+  const params = {};
+  let sql = "SELECT * FROM partners WHERE 1=1";
+  if (status) {
+    sql += " AND verification_status = @status";
+    params.status = status;
+  }
+  if (payoutHold !== undefined && payoutHold !== "") {
+    sql += " AND payout_hold = @payout_hold";
+    params.payout_hold = payoutHold === "true" ? 1 : 0;
+  }
+  sql += " ORDER BY id DESC";
+  return res.json({ items: db.prepare(sql).all(params) });
+});
+
+app.get("/admin/partners/:id", requireRole(["admin", "support"]), (req, res) => {
+  const partner = getPartnerByIdStmt.get(Number(req.params.id));
+  if (!partner) {
+    return sendError(res, 404, "NOT_FOUND", "Partner not found");
+  }
+  res.json(partner);
+});
+
+app.patch("/admin/partners/:id/verify", requireRole(["admin", "support"]), (req, res) => {
+  const parsed = partnerSchemas.verify.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const partner = getPartnerByIdStmt.get(Number(req.params.id));
+  if (!partner) {
+    return sendError(res, 404, "NOT_FOUND", "Partner not found");
+  }
+  if (parsed.data.action === "reject" && !parsed.data.comment) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Comment required");
+  }
+  const nextStatus = parsed.data.action === "verify" ? "verified" : "rejected";
+  const comment = parsed.data.action === "verify" ? null : parsed.data.comment;
+  updatePartnerStmt.run({
+    id: partner.id,
+    verification_status: nextStatus,
+    verification_comment: comment,
+    updated_at: nowIso()
+  });
+  logAudit({
+    entity_type: "partner",
+    entity_id: partner.id,
+    action: `verification_${nextStatus}`,
+    actor_id: getActorId(req),
+    before: partner,
+    after: { ...partner, verification_status: nextStatus, verification_comment: comment }
+  });
+  res.json(getPartnerByIdStmt.get(partner.id));
+});
+
+app.patch("/admin/partners/:id/commission", requireRole(["admin"]), (req, res) => {
+  const parsed = partnerSchemas.commission.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const partner = getPartnerByIdStmt.get(Number(req.params.id));
+  if (!partner) {
+    return sendError(res, 404, "NOT_FOUND", "Partner not found");
+  }
+  updatePartnerStmt.run({
+    id: partner.id,
+    commission_percent: parsed.data.commission_percent,
+    updated_at: nowIso()
+  });
+  const updated = getPartnerByIdStmt.get(partner.id);
+  logAudit({
+    entity_type: "partner",
+    entity_id: partner.id,
+    action: "update_commission",
+    actor_id: getActorId(req),
+    before: partner,
+    after: updated
+  });
+  res.json(updated);
+});
+
+app.patch("/admin/partners/:id/payout-hold", requireRole(["admin", "support"]), (req, res) => {
+  const parsed = partnerSchemas.payoutHold.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const partner = getPartnerByIdStmt.get(Number(req.params.id));
+  if (!partner) {
+    return sendError(res, 404, "NOT_FOUND", "Partner not found");
+  }
+  updatePartnerStmt.run({
+    id: partner.id,
+    payout_hold: parsed.data.payout_hold ? 1 : 0,
+    updated_at: nowIso()
+  });
+  const updated = getPartnerByIdStmt.get(partner.id);
+  logAudit({
+    entity_type: "partner",
+    entity_id: partner.id,
+    action: "update_payout_hold",
+    actor_id: getActorId(req),
+    before: partner,
+    after: updated
+  });
+  res.json(updated);
+});
+
+app.get("/admin/points", requireRole(["admin", "support"]), (req, res) => {
+  const partnerId = req.query.partner_id ? Number(req.query.partner_id) : null;
+  if (partnerId) {
+    return res.json({ items: listPointsByPartnerStmt.all(partnerId) });
+  }
+  const rows = db
+    .prepare(
+      `SELECT points.id,
+              points.partner_id,
+              points.name,
+              points.address,
+              points.status,
+              points.created_at,
+              points.updated_at
+       FROM points
+       ORDER BY points.id DESC`
+    )
+    .all();
+  res.json({ items: rows });
+});
+
+app.get("/admin/points/:id", requireRole(["admin", "support"]), (req, res) => {
+  const pointId = Number(req.params.id);
+  const point = getPointByIdStmt.get(pointId);
+  if (!point) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  res.json(point);
+});
+
+app.post("/admin/points", requireRole(["admin", "support"]), (req, res) => {
+  const parsed = partnerSchemas.point.safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const partnerId = Number(req.body.partner_id);
+  if (!partnerId || Number.isNaN(partnerId)) {
+    return sendError(res, 400, "VALIDATION_ERROR", "partner_id required");
+  }
+  const now = nowIso();
+  const result = insertPointStmt.run({
+    partner_id: partnerId,
+    name: parsed.data.name,
+    address: parsed.data.address,
+    address_comment: parsed.data.address_comment ?? null,
+    phone: parsed.data.phone ?? null,
+    work_hours: parsed.data.work_hours ? JSON.stringify(parsed.data.work_hours) : null,
+    status: parsed.data.status ?? "active",
+    created_at: now,
+    updated_at: now
+  });
+  const created = getPointByIdStmt.get(result.lastInsertRowid);
+  logAudit({
+    entity_type: "point",
+    entity_id: created.id,
+    action: "create",
+    actor_id: getActorId(req),
+    before: null,
+    after: created
+  });
+  res.status(201).json(created);
+});
+
+app.put("/admin/points/:id", requireRole(["admin", "support"]), (req, res) => {
+  const pointId = Number(req.params.id);
+  const existing = getPointByIdStmt.get(pointId);
+  if (!existing) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  const parsed = partnerSchemas.point.partial().safeParse(req.body);
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  updatePointStmt.run({
+    id: pointId,
+    ...parsed.data,
+    work_hours: parsed.data.work_hours ? JSON.stringify(parsed.data.work_hours) : undefined,
+    updated_at: nowIso()
+  });
+  const updated = getPointByIdStmt.get(pointId);
+  logAudit({
+    entity_type: "point",
+    entity_id: pointId,
+    action: "update",
+    actor_id: getActorId(req),
+    before: existing,
+    after: updated
+  });
+  res.json(updated);
+});
+
+app.delete("/admin/points/:id", requireRole(["admin"]), (req, res) => {
+  const pointId = Number(req.params.id);
+  const existing = getPointByIdStmt.get(pointId);
+  if (!existing) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  db.prepare("DELETE FROM points WHERE id = ?").run(pointId);
+  logAudit({
+    entity_type: "point",
+    entity_id: pointId,
+    action: "delete",
+    actor_id: getActorId(req),
+    before: existing,
+    after: null
+  });
+  res.json({ status: "ok" });
+});
+
+app.get("/admin/points/:pointId/categories", requireRole(["admin", "support"]), (req, res) => {
+  const pointId = Number(req.params.pointId);
+  const point = getPointByIdStmt.get(pointId);
+  if (!point) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  res.json({ items: listMenuCategoriesStmt.all(pointId) });
+});
+
+app.put("/admin/points/:pointId/categories/:id", requireRole(["admin", "support"]), (req, res) => {
+  const pointId = Number(req.params.pointId);
+  const point = getPointByIdStmt.get(pointId);
+  if (!point) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  const parsed = menuSchemas.category.safeParse(req.body || {});
+  if (!parsed.success) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const current = getMenuCategoryByIdStmt.get(Number(req.params.id), pointId);
+  if (!current) {
+    return sendError(res, 404, "NOT_FOUND", "Category not found");
+  }
+  const normalized = normalizeCategoryName(parsed.data.name);
+  if (!normalized) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Name required");
+  }
+  const conflict = getMenuCategoryByNormalizedStmt.get(pointId, normalized.normalized);
+  if (conflict && Number(conflict.id) !== Number(current.id)) {
+    return sendError(res, 409, "DUPLICATE", "Category already exists");
+  }
+  updateMenuCategoryStmt.run({
+    id: current.id,
+    point_id: pointId,
+    name: normalized.name,
+    name_normalized: normalized.normalized,
+    updated_at: nowIso()
+  });
+  const updated = getMenuCategoryByIdStmt.get(current.id, pointId);
+  logAudit({
+    entity_type: "menu_category",
+    entity_id: current.id,
+    action: "update",
+    actor_id: getActorId(req),
+    before: current,
+    after: updated
+  });
+  res.json(updated);
+});
+
+app.get("/admin/points/:pointId/items", requireRole(["admin", "support"]), (req, res) => {
+  const pointId = Number(req.params.pointId);
+  const point = getPointByIdStmt.get(pointId);
+  if (!point) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  const { q, categoryId, available } = req.query;
+  const base = listMenuItemsStmt.all({ point_id: pointId });
+  let items = base;
+  if (categoryId) {
+    items = items.filter((item) => Number(item.category_id) === Number(categoryId));
+  }
+  if (available !== undefined && available !== "") {
+    const flag = Number(available) === 1;
+    items = items.filter((item) => Boolean(item.is_available) === flag);
+  }
+  if (q) {
+    const search = String(q).toLowerCase();
+    items = items.filter((item) => item.name.toLowerCase().includes(search));
+  }
+  res.json({ items });
+});
+
+app.put("/admin/points/:pointId/items/:id", requireRole(["admin", "support"]), (req, res) => {
+  const pointId = Number(req.params.pointId);
+  const point = getPointByIdStmt.get(pointId);
+  if (!point) {
+    return sendError(res, 404, "NOT_FOUND", "Point not found");
+  }
+  const current = getMenuItemByIdStmt.get(Number(req.params.id), pointId);
+  if (!current) {
+    return sendError(res, 404, "NOT_FOUND", "Item not found");
+  }
+  const payload = {
+    name: req.body?.name ?? current.name,
+    description: req.body?.description ?? current.description ?? null,
+    price: req.body?.price !== undefined ? Number(req.body.price) : current.price,
+    is_available: req.body?.is_available,
+    photo_url: req.body?.photo_url ?? current.photo_url ?? null,
+    categoryId: req.body?.categoryId ? Number(req.body?.categoryId) : undefined,
+    categoryName: req.body?.categoryName ?? undefined
+  };
+  const parsed = menuSchemas.item.safeParse(payload);
+  if (!parsed.success || Number.isNaN(payload.price)) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+  }
+  const resolved = resolveMenuCategory(pointId, {
+    categoryId: payload.categoryId,
+    categoryName: payload.categoryName
+  });
+  if (resolved.error) {
+    return sendError(res, 400, "VALIDATION_ERROR", resolved.error);
+  }
+  if (!resolved.existing && resolved.id && payload.categoryName) {
+    const createdCategory = getMenuCategoryByIdStmt.get(resolved.id, pointId);
+    logAudit({
+      entity_type: "menu_category",
+      entity_id: resolved.id,
+      action: "create",
+      actor_id: getActorId(req),
+      before: null,
+      after: createdCategory
+    });
+  }
+  updateMenuItemStmt.run({
+    id: current.id,
+    point_id: pointId,
+    category_id: resolved.id ?? current.category_id,
+    name: parsed.data.name,
+    description: parsed.data.description ?? null,
+    price: Math.round(payload.price),
+    is_available: payload.is_available === undefined ? current.is_available : payload.is_available ? 1 : 0,
+    photo_url: parsed.data.photo_url ?? null,
+    updated_at: nowIso()
+  });
+  const updated = getMenuItemByIdStmt.get(current.id, pointId);
+  logAudit({
+    entity_type: "menu_item",
+    entity_id: current.id,
+    action: "update",
+    actor_id: getActorId(req),
+    before: current,
+    after: updated
+  });
+  res.json(updated);
+});
+
+app.patch(
+  "/admin/points/:pointId/items/:id/availability",
+  requireRole(["admin", "support"]),
+  (req, res) => {
+    const pointId = Number(req.params.pointId);
+    const point = getPointByIdStmt.get(pointId);
+    if (!point) {
+      return sendError(res, 404, "NOT_FOUND", "Point not found");
+    }
+    const current = getMenuItemByIdStmt.get(Number(req.params.id), pointId);
+    if (!current) {
+      return sendError(res, 404, "NOT_FOUND", "Item not found");
+    }
+    if (typeof req.body?.is_available !== "boolean") {
+      return sendError(res, 400, "VALIDATION_ERROR", "Invalid request");
+    }
+    updateMenuItemAvailabilityStmt.run({
+      id: current.id,
+      point_id: pointId,
+      is_available: req.body.is_available ? 1 : 0,
+      updated_at: nowIso()
+    });
+    const updated = getMenuItemByIdStmt.get(current.id, pointId);
+    logAudit({
+      entity_type: "menu_item",
+      entity_id: current.id,
+      action: "availability",
+      actor_id: getActorId(req),
+      before: current,
+      after: updated
+    });
+    res.json(updated);
+  }
+);
 
 const toOrderNumber = (orderNumber) =>
   orderNumber || `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -282,8 +1912,26 @@ const getPromoDiscount = ({ code, outletId, clientUserId, subtotal }) => {
   };
 };
 
+const getPartnerCommissionPercent = (outletId) => {
+  if (!outletId) return 0;
+  const row = db
+    .prepare(
+      `SELECT partners.commission_percent as commission
+       FROM outlets
+       JOIN partners ON partners.id = outlets.partner_id
+       WHERE outlets.id = ?`
+    )
+    .get(outletId);
+  return Number(row?.commission || 0);
+};
+
 const computeOrderPricing = ({ order, items }) => {
   const subtotalFood = items.reduce((sum, item) => sum + Number(item.total_price || 0), 0);
+  const commissionPercent = getPartnerCommissionPercent(order.outlet_id);
+  const commissionFromFood = Math.max(
+    0,
+    Math.round((subtotalFood * Number(commissionPercent || 0)) / 100)
+  );
   const campaigns = getActiveCampaigns(order.outlet_id);
   const countCampaignUsageStmt = db.prepare(
     "SELECT COUNT(*) as count FROM campaign_usage WHERE campaign_id = ?"
@@ -404,14 +2052,16 @@ const computeOrderPricing = ({ order, items }) => {
   });
 
   const promoDiscount = Math.max(0, Math.min(subtotalFood, promoResult.discount || 0));
+  const serviceFee = order.service_fee ?? 3000;
   const totalAmount = Math.max(
     0,
     subtotalFood +
       Number(order.courier_fee || 0) +
-      Number(order.service_fee || 0) -
+      Number(serviceFee || 0) -
       promoDiscount -
       campaignDiscount
   );
+  const partnerNet = Math.max(0, subtotalFood - commissionFromFood);
 
   const appliedCampaigns = Array.from(campaignDiscounts.entries()).map(([id, amount]) => ({
     campaign_id: id,
@@ -420,6 +2070,9 @@ const computeOrderPricing = ({ order, items }) => {
 
   return {
     subtotal_food: subtotalFood,
+    food_total: subtotalFood,
+    commission_from_food: commissionFromFood,
+    partner_net: partnerNet,
     promo_discount_amount: promoDiscount,
     campaign_discount_amount: campaignDiscount,
     total_amount: totalAmount,
@@ -674,6 +2327,9 @@ const logAudit = ({ entity_type, entity_id, action, actor_id, before, after }) =
 };
 
 const getActorId = (req) => {
+  if (req.user?.id) {
+    return req.user.id;
+  }
   const tgId = req.header("x-actor-tg");
   if (!tgId) {
     return null;
@@ -686,6 +2342,69 @@ const logOrderEvent = ({ order_id, type, payload, actor_id }) => {
   db.prepare(
     "INSERT INTO order_events (order_id, type, payload, actor_id) VALUES (?, ?, ?, ?)"
   ).run(order_id, type, payload ? JSON.stringify(payload) : null, actor_id);
+};
+
+const isHandoffCodeActive = (order) => {
+  if (!order || !order.handoff_code_hash) return false;
+  if (order.handoff_code_used_at) return false;
+  if (order.handoff_code_expires_at) {
+    const expiresAt = Date.parse(order.handoff_code_expires_at);
+    if (!Number.isNaN(expiresAt) && expiresAt < Date.now()) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const canExposeHandoffCode = ({ order, role, userId, partnerId }) => {
+  if (!order || !isHandoffCodeActive(order)) return false;
+  if (["admin", "support"].includes(role)) return true;
+  if (role === "courier") {
+    return (
+      order.fulfillment_type !== "pickup" &&
+      Number(order.courier_user_id || 0) === Number(userId || 0) &&
+      !["delivered", "cancelled"].includes(order.status)
+    );
+  }
+  if (role === "partner") {
+    return (
+      Number(order.partner_id || 0) === Number(partnerId || 0) &&
+      ["accepted_by_restaurant", "ready_for_pickup", "picked_up"].includes(order.status)
+    );
+  }
+  if (role === "client") {
+    return (
+      Number(order.client_user_id || 0) === Number(userId || 0) &&
+      ["accepted_by_restaurant", "ready_for_pickup", "picked_up"].includes(order.status)
+    );
+  }
+  return false;
+};
+
+const getPartnerForRequest = (req, res) => {
+  if (!req.user?.id) {
+    sendError(res, 401, "UNAUTHORIZED", "Unauthorized");
+    return null;
+  }
+  const partner = getPartnerByUserStmt.get(req.user.id);
+  if (!partner) {
+    sendError(res, 403, "FORBIDDEN", "Partner access required");
+    return null;
+  }
+  return partner;
+};
+
+const getPartnerPointForRequest = (req, res, pointId) => {
+  const partner = getPartnerForRequest(req, res);
+  if (!partner) {
+    return null;
+  }
+  const point = getPartnerPointStmt.get(Number(pointId), partner.id);
+  if (!point) {
+    sendError(res, 403, "FORBIDDEN", "Point access denied");
+    return null;
+  }
+  return { partner, point };
 };
 
 function parseJsonSafe(value, fallback = {}) {
@@ -739,6 +2458,34 @@ const normalizeCategoryName = (value) => {
     return null;
   }
   return { name, normalized: name.toLowerCase() };
+};
+
+const resolveMenuCategory = (pointId, { categoryId, categoryName }) => {
+  if (categoryId !== undefined && categoryId !== null && categoryId !== "") {
+    const resolved = getMenuCategoryByIdStmt.get(Number(categoryId), pointId);
+    if (!resolved) {
+      return { error: "Category not found" };
+    }
+    return { id: resolved.id, name: resolved.name, existing: true };
+  }
+
+  const normalized = normalizeCategoryName(categoryName);
+  if (!normalized) {
+    return { id: null, name: null, existing: false };
+  }
+  const existing = getMenuCategoryByNormalizedStmt.get(pointId, normalized.normalized);
+  if (existing) {
+    return { id: existing.id, name: existing.name, existing: true };
+  }
+  const now = nowIso();
+  const result = insertMenuCategoryStmt.run({
+    point_id: pointId,
+    name: normalized.name,
+    name_normalized: normalized.normalized,
+    created_at: now,
+    updated_at: now
+  });
+  return { id: result.lastInsertRowid, name: normalized.name, existing: false };
 };
 
 const resolveOutletCategory = (db, outletId, { categoryId, categoryName }) => {
@@ -1231,12 +2978,19 @@ const getOrderStmt = db.prepare(
   `SELECT id, order_number, outlet_id, client_user_id, courier_user_id, status,
           pickup_attempts, pickup_code_hash, pickup_code_plain, pickup_locked_until,
           accepted_at, ready_at, picked_up_at, delivered_at, prep_eta_minutes,
-          sla_due_at, sla_breached, total_amount, delivery_address, created_at
+          sla_due_at, sla_breached, total_amount, delivery_address, created_at,
+          handoff_code_hash, handoff_code_encrypted, handoff_code_last4, handoff_code_expires_at, handoff_code_used_at,
+          fulfillment_type, food_total, commission_from_food, partner_net, service_fee
    FROM orders WHERE id = ?`
 );
 const createOrderStmt = db.prepare(
-  `INSERT INTO orders (order_number, outlet_id, client_user_id, courier_user_id, status, total_amount, delivery_address)
-   VALUES (@order_number, @outlet_id, @client_user_id, @courier_user_id, @status, @total_amount, @delivery_address)`
+  `INSERT INTO orders
+    (order_number, outlet_id, client_user_id, courier_user_id, status, total_amount, delivery_address,
+     handoff_code_hash, handoff_code_encrypted, handoff_code_last4, handoff_code_expires_at, fulfillment_type,
+     food_total, commission_from_food, partner_net, service_fee)
+   VALUES (@order_number, @outlet_id, @client_user_id, @courier_user_id, @status, @total_amount, @delivery_address,
+           @handoff_code_hash, @handoff_code_encrypted, @handoff_code_last4, @handoff_code_expires_at, @fulfillment_type,
+           @food_total, @commission_from_food, @partner_net, @service_fee)`
 );
 const updateOrderStmt = db.prepare(
   `UPDATE orders
@@ -1244,7 +2998,16 @@ const updateOrderStmt = db.prepare(
           courier_user_id = COALESCE(@courier_user_id, courier_user_id),
           prep_eta_minutes = COALESCE(@prep_eta_minutes, prep_eta_minutes),
           total_amount = COALESCE(@total_amount, total_amount),
-          delivery_address = COALESCE(@delivery_address, delivery_address)
+          delivery_address = COALESCE(@delivery_address, delivery_address),
+          handoff_code_hash = COALESCE(@handoff_code_hash, handoff_code_hash),
+          handoff_code_encrypted = COALESCE(@handoff_code_encrypted, handoff_code_encrypted),
+          handoff_code_last4 = COALESCE(@handoff_code_last4, handoff_code_last4),
+          handoff_code_expires_at = COALESCE(@handoff_code_expires_at, handoff_code_expires_at),
+          fulfillment_type = COALESCE(@fulfillment_type, fulfillment_type),
+          food_total = COALESCE(@food_total, food_total),
+          commission_from_food = COALESCE(@commission_from_food, commission_from_food),
+          partner_net = COALESCE(@partner_net, partner_net),
+          service_fee = COALESCE(@service_fee, service_fee)
      WHERE id = @id`
 );
 const getOrderCancelStmt = db.prepare(
@@ -1260,6 +3023,23 @@ const getOrderCancelStmt = db.prepare(
           orders.courier_penalty,
           orders.promo_code
    FROM orders
+   WHERE orders.id = ?`
+);
+const getOrderHandoffStmt = db.prepare(
+  `SELECT orders.id,
+          orders.status,
+          orders.fulfillment_type,
+          orders.handoff_code_hash,
+          orders.handoff_code_encrypted,
+          orders.handoff_code_last4,
+          orders.handoff_code_expires_at,
+          orders.handoff_code_used_at,
+          orders.courier_user_id,
+          orders.client_user_id,
+          orders.outlet_id,
+          outlets.partner_id as partner_id
+   FROM orders
+   LEFT JOIN outlets ON outlets.id = orders.outlet_id
    WHERE orders.id = ?`
 );
 const updateOrderCancelStmt = db.prepare(
@@ -1303,6 +3083,9 @@ const getCancelReasonStmt = db.prepare(
 const getOrderPricingStmt = db.prepare(
   `SELECT id,
           subtotal_food,
+          food_total,
+          commission_from_food,
+          partner_net,
           courier_fee,
           service_fee,
           discount_amount,
@@ -1359,6 +3142,9 @@ const insertCampaignUsageStmt = db.prepare(
 const updateOrderTotalsStmt = db.prepare(
   `UPDATE orders
    SET subtotal_food = @subtotal_food,
+       food_total = @food_total,
+       commission_from_food = @commission_from_food,
+       partner_net = @partner_net,
        discount_amount = @discount_amount,
        promo_discount_amount = @promo_discount_amount,
        campaign_discount_amount = @campaign_discount_amount,
@@ -1399,6 +3185,13 @@ const updateOrderDeliverStmt = db.prepare(
    SET status = 'delivered',
        delivered_at = @delivered_at,
        sla_breached = @sla_breached
+   WHERE id = @id`
+);
+const updateOrderHandoffStmt = db.prepare(
+  `UPDATE orders
+   SET status = 'delivered',
+       delivered_at = @delivered_at,
+       handoff_code_used_at = @handoff_code_used_at
    WHERE id = @id`
 );
 const updateOrderAttemptsStmt = db.prepare(
@@ -5019,10 +6812,19 @@ app.get("/api/orders/:id/details", (req, res) => {
               orders.ready_at,
               orders.picked_up_at,
               orders.delivered_at,
+              orders.handoff_code_hash,
+              orders.handoff_code_encrypted,
+              orders.handoff_code_last4,
+              orders.handoff_code_expires_at,
+              orders.handoff_code_used_at,
+              orders.fulfillment_type,
               orders.promised_delivery_at,
               orders.sent_to_restaurant_at,
               orders.total_amount,
               orders.subtotal_food,
+              orders.food_total,
+              orders.commission_from_food,
+              orders.partner_net,
               orders.courier_fee,
               orders.service_fee,
               orders.discount_amount,
@@ -5046,6 +6848,7 @@ app.get("/api/orders/:id/details", (req, res) => {
               orders.courier_user_id,
               orders.client_user_id,
               orders.outlet_id,
+              outlets.partner_id as partner_id,
               clients.full_name as client_name,
               clients.phone as client_phone,
               users.tg_id as client_tg_id,
@@ -5109,9 +6912,17 @@ app.get("/api/orders/:id/details", (req, res) => {
         promoDiscount -
         campaignDiscount
     );
+  const canSeeCode = canExposeHandoffCode({
+    order: row,
+    role: getRole(req),
+    userId: req.user?.id,
+    partnerId: row.partner_id
+  });
+  const handoffCode = canSeeCode ? decryptHandoffCode(row.handoff_code_encrypted) : null;
   res.json({
     ...row,
     total_amount: totalAmount,
+    handoff_code: handoffCode,
     items,
     ...signals,
     links: {
@@ -5507,6 +7318,9 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
         updateOrderTotalsStmt.run({
           id,
           subtotal_food: pricing.subtotal_food,
+          food_total: pricing.food_total,
+          commission_from_food: pricing.commission_from_food,
+          partner_net: pricing.partner_net,
           discount_amount: pricing.promo_discount_amount + pricing.campaign_discount_amount,
           promo_discount_amount: pricing.promo_discount_amount,
           campaign_discount_amount: pricing.campaign_discount_amount,
@@ -5543,6 +7357,8 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
           before: {
             items: beforeItems,
             subtotal_food: order.subtotal_food,
+            commission_from_food: order.commission_from_food ?? 0,
+            partner_net: order.partner_net ?? 0,
             promo_discount_amount: order.promo_discount_amount ?? order.discount_amount ?? 0,
             campaign_discount_amount: order.campaign_discount_amount ?? 0,
             total_amount: order.total_amount
@@ -5550,6 +7366,8 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
           after: {
             items: afterItems,
             subtotal_food: pricing.subtotal_food,
+            commission_from_food: pricing.commission_from_food,
+            partner_net: pricing.partner_net,
             promo_discount_amount: pricing.promo_discount_amount,
             campaign_discount_amount: pricing.campaign_discount_amount,
             total_amount: pricing.total_amount
@@ -5558,6 +7376,8 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
         return {
           items: afterItems,
           subtotal_food: pricing.subtotal_food,
+          commission_from_food: pricing.commission_from_food,
+          partner_net: pricing.partner_net,
           promo_discount_amount: pricing.promo_discount_amount,
           campaign_discount_amount: pricing.campaign_discount_amount,
           total_amount: pricing.total_amount
@@ -5634,7 +7454,88 @@ app.post("/api/orders/:id/reassign", requireRole(["admin", "support", "operator"
     }
   );
 
+  app.post(
+    "/api/orders/:id/confirm-handoff",
+    authRequired,
+    requireRole(["courier", "partner"]),
+    (req, res) => {
+      const id = Number(req.params.id);
+      const code = String(req.body?.code || "").trim();
+      if (!code) {
+        return sendError(res, 400, "VALIDATION_ERROR", "Code required");
+      }
+      const order = getOrderHandoffStmt.get(id);
+      if (!order) {
+        return sendError(res, 404, "NOT_FOUND", "Order not found");
+      }
+      if (["delivered", "cancelled"].includes(order.status)) {
+        return sendError(res, 409, "CONFLICT", "Order already завершен");
+      }
+      const role = getRole(req);
+      if (order.fulfillment_type === "pickup" && role !== "partner") {
+        return sendError(res, 403, "FORBIDDEN", "Pickup handoff requires partner");
+      }
+      if (order.fulfillment_type !== "pickup" && role !== "courier") {
+        return sendError(res, 403, "FORBIDDEN", "Delivery handoff requires courier");
+      }
+      if (role === "courier" && Number(order.courier_user_id) !== Number(req.user.id)) {
+        return sendError(res, 403, "FORBIDDEN", "Courier not assigned");
+      }
+      if (role === "partner") {
+        const partner = getPartnerByUserStmt.get(req.user.id);
+        if (!partner || Number(partner.id) !== Number(order.partner_id)) {
+          return sendError(res, 403, "FORBIDDEN", "Partner access denied");
+        }
+      }
+      if (!isHandoffCodeActive(order)) {
+        return sendError(res, 409, "CONFLICT", "Handoff code expired");
+      }
+      const hash = hashHandoffCode(code);
+      if (hash !== order.handoff_code_hash) {
+        logAudit({
+          entity_type: "order",
+          entity_id: order.id,
+          action: "handoff_failed",
+          actor_id: req.user?.id,
+          before: { handoff_code_last4: order.handoff_code_last4 },
+          after: { ip: req.ip }
+        });
+        return sendError(res, 400, "INVALID_CODE", "Неверный код");
+      }
+      const now = nowIso();
+      updateOrderHandoffStmt.run({
+        id: order.id,
+        delivered_at: now,
+        handoff_code_used_at: now
+      });
+      logOrderEvent({
+        order_id: order.id,
+        type: "handoff_confirmed",
+        payload: { role },
+        actor_id: req.user?.id
+      });
+      logAudit({
+        entity_type: "order",
+        entity_id: order.id,
+        action: "handoff_confirmed",
+        actor_id: req.user?.id,
+        before: order,
+        after: { status: "delivered", handoff_code_used_at: now }
+      });
+      res.json({ status: "ok" });
+    }
+  );
+
 app.post("/api/orders", requireRole(["admin", "operator"]), (req, res) => {
+  const handoffCode = generateHandoffCode();
+  const foodTotal = Number(req.body.food_total ?? req.body.subtotal_food ?? 0);
+  const commissionPercent = getPartnerCommissionPercent(req.body.outlet_id);
+  const commissionFromFood = Math.max(
+    0,
+    Math.round((foodTotal * Number(commissionPercent || 0)) / 100)
+  );
+  const serviceFee = Number(req.body.service_fee ?? 3000);
+  const partnerNet = Math.max(0, foodTotal - commissionFromFood);
   const payload = {
     order_number: toOrderNumber(req.body.order_number),
     outlet_id: req.body.outlet_id,
@@ -5642,7 +7543,16 @@ app.post("/api/orders", requireRole(["admin", "operator"]), (req, res) => {
     courier_user_id: req.body.courier_user_id ?? null,
     status: req.body.status ?? "accepted_by_system",
     total_amount: req.body.total_amount ?? 0,
-    delivery_address: req.body.delivery_address ?? null
+    delivery_address: req.body.delivery_address ?? null,
+    handoff_code_hash: hashHandoffCode(handoffCode),
+    handoff_code_encrypted: encryptHandoffCode(handoffCode),
+    handoff_code_last4: handoffCode.slice(-4),
+    handoff_code_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    fulfillment_type: req.body.fulfillment_type ?? "delivery",
+    food_total: foodTotal,
+    commission_from_food: commissionFromFood,
+    partner_net: partnerNet,
+    service_fee: serviceFee
   };
   const result = createOrderStmt.run(payload);
   logOrderEvent({
@@ -5660,7 +7570,7 @@ app.post("/api/orders", requireRole(["admin", "operator"]), (req, res) => {
     before: null,
     after: created
   });
-  res.status(201).json(created);
+  res.status(201).json({ ...created, handoff_code: handoffCode });
 });
 
 app.get("/api/orders/:id", (req, res) => {
@@ -5891,7 +7801,7 @@ app.get("/api/promos", (req, res) => {
     },
     {
       value:
-        is_active !== undefined
+        is_active !== undefined && is_active !== ""
           ? Number(is_active)
           : null,
       clause: "promo_codes.is_active = @is_active",

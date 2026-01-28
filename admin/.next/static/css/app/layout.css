@@ -258,6 +258,42 @@ textarea {
   min-height: 44px;
 }
 
+.combo {
+  position: relative;
+}
+
+.combo-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-12);
+  box-shadow: var(--shadow-sm);
+  z-index: 20;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.combo-option {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 10px 12px;
+  font-size: var(--font-14);
+  cursor: pointer;
+}
+
+.combo-option:hover {
+  background: var(--surface-muted);
+}
+
+.combo-option.create {
+  font-weight: 600;
+}
+
 .select {
   border: 1px solid var(--border);
   border-radius: var(--radius-12);
@@ -280,6 +316,20 @@ textarea {
 
 .button:hover {
   background: var(--primary-hover);
+}
+
+.button.secondary {
+  background: #eef2ff;
+  color: #1e1b4b;
+}
+
+.button.secondary:hover {
+  background: #e0e7ff;
+}
+
+.form-error {
+  color: #b91c1c;
+  font-size: var(--font-12);
 }
 
 .auth-layout {
@@ -344,6 +394,38 @@ textarea {
 
 .form-row.two {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.form-row.three {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.order-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-gap: var(--space-24);
+  gap: var(--space-24);
+}
+
+.order-overview-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.order-items-card .table-wrap {
+  overflow-x: auto;
+}
+
+.section-divider {
+  border-top: 1px solid var(--border);
+  margin: var(--space-16) 0;
+}
+
+@media (max-width: 1024px) {
+  .order-overview-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .helper-text {

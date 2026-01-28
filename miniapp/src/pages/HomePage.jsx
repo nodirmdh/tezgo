@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 const highlights = [
   {
     title: "Client",
@@ -42,6 +44,17 @@ export default function HomePage() {
               <div className="stat-label">{stat.label}</div>
             </div>
           ))}
+        </div>
+        <div className="action-row">
+          <Link className="primary" to="/client/login">
+            Client login
+          </Link>
+          <Link className="ghost" to="/restaurant/login">
+            Partner login
+          </Link>
+          <Link className="ghost" to="/courier/login">
+            Courier login
+          </Link>
         </div>
       </div>
       <div className="cards">

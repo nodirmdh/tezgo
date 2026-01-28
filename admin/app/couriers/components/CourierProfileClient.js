@@ -11,16 +11,18 @@ import CourierFinance from "./CourierFinance";
 import CourierNotes from "./CourierNotes";
 import { translateStatus } from "../../../lib/i18n";
 import { useLocale } from "../../components/LocaleProvider";
+import { useAuth } from "../../components/AuthProvider";
 
 const emptyOrders = { items: [], page: 1, limit: 10, total: 0 };
 
 export default function CourierProfileClient({ courierId, initialCourier }) {
   const { locale, t } = useLocale();
+  const { user: authUser } = useAuth();
   const [courier, setCourier] = useState(initialCourier);
   const [activeTab, setActiveTab] = useState("overview");
   const [toast, setToast] = useState(null);
-  const [role, setRole] = useState("support");
-  const [authorTgId, setAuthorTgId] = useState(null);
+  const role = normalizeRole(authUser?.role);
+  const authorTgId = authUser?.tg_id || null;
   const [tabState, setTabState] = useState({
     orders: { data: emptyOrders, loading: false, error: null },
     finance: { data: null, loading: false, error: null },
@@ -32,16 +34,6 @@ export default function CourierProfileClient({ courierId, initialCourier }) {
     page: 1,
     limit: 10
   });
-
-  useEffect(() => {
-    const stored = localStorage.getItem("adminAuth");
-    if (!stored) {
-      return;
-    }
-    const parsed = JSON.parse(stored);
-    setRole(normalizeRole(parsed.role));
-    setAuthorTgId(parsed.tgId || null);
-  }, []);
 
   const reloadCourier = async () => {
     const result = await apiJson(`/api/couriers/${courierId}`);
